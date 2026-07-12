@@ -26,3 +26,10 @@ services:
 
 volumes:
   postgres_data:
+
+# DESPUES DE LEVANTAR EL DOCKER SE DEBE HACER:
+## 1 y 2 para levantar bdd
+## 1. python manage.py makemigrations
+## 2. python manage.py migrate
+## 3 para levantar app
+## 3. python manage.py runserver
