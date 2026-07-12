@@ -4,9 +4,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
-from FonoAppAdministracion.models import FonoApp_Administracion
-from FonoAppAdministracion.serializer import FonoApp_Serializer
-from FonoAppFunciones.authentication import CustomJWTAuthentication
+from FonoAppAdministracion.models import FonoApp_Administracion, FonoApp_Banner_Inicio, FonoApp_Banner_Inicio_Imagenes
+from FonoAppAdministracion.serializer import FonoApp_Serializer, FonoApp_Banner_ImagenSerializer, FonoApp_Banner_InicioSerializer
+from FonoAppFunciones.authentication import CustomJWTAuthentication, reCaptcha
 
 @api_view(['POST'])
 @permission_classes([AllowAny]) # Permite acceso inicial (registro) sin token
@@ -32,6 +32,13 @@ def login_view(request):
     # frontend debe enviar {"correo": "...", "password": "..."}
     email = request.data.get('correo')
     password = request.data.get('password')
+    # captcha_token = request.data.get('captcha_token')
+
+    # if not reCaptcha.captcha_verification(captcha_token):
+    #     return Response(
+    #         {'error': 'Fallo en la validacion de seguridad (reCAPTCHA). Por favor intente denuevo'},
+    #         status=status.HTTP_400_BAD_REQUEST
+    #     )
 
     if not email or not password:
         return Response({'error': 'Email y password requeridos'}, status=status.HTTP_400_BAD_REQUEST)
@@ -95,3 +102,75 @@ def usuario_actualizar_password(request, rut):
         return Response({'mensaje': 'Contraseña actualizada correctamente'}, status=status.HTTP_200_OK)
         
     return Response({'error': 'Usuario no encontrado o RUT incorrecto'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ========================================
+# BANNER
+# ========================================
+
+# -------------------------------------------------------------------------
+# MÉTODO: GET
+# USO: Lista todos los banners activos (Acceso público para el frontend)
+# -------------------------------------------------------------------------
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def banner_listar(request):
+    # Utilizamos el manager personalizado para traer activos y evitar el problema N+1 con las imágenes
+    banners = FonoApp_Banner_Inicio.objects.activos().con_detalles()
+    serializer = FonoApp_Banner_InicioSerializer(banners, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+# -------------------------------------------------------------------------
+# MÉTODO: POST
+# USO: Crea un nuevo banner con su imagen (Requiere Token JWT)
+# -------------------------------------------------------------------------
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def banner_crear(request):
+    # Pasamos el context={'request': request} para que el Serializer pueda extraer el usuario (request.user)
+    serializer = FonoApp_Banner_InicioSerializer(data=request.data, context={'request': request})
+    
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# -------------------------------------------------------------------------
+# MÉTODO: PUT / PATCH
+# USO: Edita la información de un banner existente (Requiere Token JWT)
+# -------------------------------------------------------------------------
+@api_view(['PATCH', 'PUT'])
+@permission_classes([IsAuthenticated])
+def banner_editar(request, id_banner):
+    try:
+        banner = FonoApp_Banner_Inicio.objects.get(pk=id_banner, estado=True)
+    except FonoApp_Banner_Inicio.DoesNotExist:
+        return Response({'error': 'Banner no encontrado o inactivo'}, status=status.HTTP_404_NOT_FOUND)
+    
+    # partial=True permite actualizar solo los campos enviados en la petición (ej. cambiar solo el título)
+    serializer = FonoApp_Banner_InicioSerializer(banner, data=request.data, partial=True, context={'request': request})
+    
+    if serializer.is_valid():
+        serializer.save()
+        return Response({
+            'mensaje': 'Banner actualizado correctamente', 
+            'data': serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# -------------------------------------------------------------------------
+# MÉTODO: DELETE
+# USO: Realiza un borrado lógico del banner (Requiere Token JWT)
+# -------------------------------------------------------------------------
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def banner_eliminar(request, id_banner):
+    # Invocamos el método del QuerySet para hacer la baja lógica (estado = False)
+    filas_actualizadas = FonoApp_Banner_Inicio.objects.eliminar_logico(id_banner=id_banner)
+    
+    if filas_actualizadas > 0:
+        return Response({'mensaje': 'Banner eliminado correctamente'}, status=status.HTTP_200_OK)
+        
+    return Response({'error': 'Banner no encontrado'}, status=status.HTTP_404_NOT_FOUND)

@@ -1,3 +1,5 @@
+import requests
+from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.tokens import AccessToken
@@ -25,3 +27,25 @@ class CustomJWTAuthentication(BaseAuthentication):
             raise AuthenticationFailed('Usuario no encontrado')
 
         return (usuario, token)
+    
+class reCaptcha():
+    def captcha_verification(captcha_token):
+        """
+        Envia token a google y devuelve true si es valido, false invalido o bot
+        """
+        if not captcha_token:
+            return False
+        
+        url = 'https://www.google.com/recaptcha/api/siteverify'
+        datos = {
+            'secret': settings.RECAPTCHA_SECRET_KEY,
+            'response': captcha_token
+        }
+
+        try:
+            respuesta = requests.post(url, data=datos)
+            resultado = respuesta.json()
+            
+            return resultado.get('success', False)
+        except requests.RequestException:
+            return False

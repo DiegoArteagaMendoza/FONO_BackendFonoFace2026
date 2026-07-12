@@ -4,6 +4,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-)dj+y&$f2+q)elr0c!&k2fo^*^y+l$p*&l+civ#k3)fx959a0%'
 
+RECAPTCHA_SECRET_KEY = '6LfRpCUtAAAAACCBt7qHtR_2WYPGjM3mcoQUwrku'
+
 DEBUG = True
 
 ALLOWED_HOSTS = []
