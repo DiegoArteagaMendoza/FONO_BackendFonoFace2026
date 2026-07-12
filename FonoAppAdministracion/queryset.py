@@ -44,3 +44,40 @@ class FonoAPP_Queryset(models.QuerySet):
         filas_actualizadas = self.filter(rut=rut).update(password=password_encriptada)
         
         return filas_actualizadas > 0
+    
+    # =======================================
+    # BANNER QUERYSET
+    # =======================================
+
+class FonoApp_Banner_Queryset(models.QuerySet):
+    def activos(self):
+        """Retorna solo los banners vigentes."""
+        return self.filter(estado=True)
+
+    def con_detalles(self):
+        """Optimiza la consulta de imágenes relacionales para evitar el problema N+1."""
+        return self.select_related('FonoApp_Administracion').prefetch_related('imagenes')
+
+    def crear_banner(self, usuario, titulo, descripcion, imagenes=None, **extra_fields):
+        """Crea el banner y asocia su imagen validando el límite de negocio."""
+        if imagenes and len(imagenes) > 1:
+            raise ValueError("Solo se permite adjuntar una (1) imagen por banner.")
+
+        banner = self.create(
+            FonoApp_Administracion=usuario,
+            titulo=titulo,
+            descripcion=descripcion,
+            **extra_fields
+        )
+
+        if imagenes:
+            from .models import FonoApp_Banner_Inicio_Imagenes
+            # Aunque sea una sola, mantenemos la estructura relacional limpia
+            FonoApp_Banner_Inicio_Imagenes.objects.create(banner=banner, imagen=imagenes[0])
+
+        return banner
+
+    def eliminar_logico(self, id_banner):
+        """Realiza la baja lógica cambiando el estado a False."""
+        return self.filter(id_banner=id_banner).update(estado=False)
+        
