@@ -81,4 +81,16 @@ urlpatterns = [
     # BODY: Ninguno
     # -------------------------------------------------------------------------
     path('imagenes/<int:id_imagen>/eliminar/', views.noticia_imagen_eliminar, name='noticia-imagen-eliminar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST
+    # URL: /api/noticias/newsletter/suscribir/
+    # HEADERS: Ninguno (Acceso público)
+    # BODY (JSON): { "email": "visitante@correo.com" }
+    # RESPUESTA ESPERADA (JSON):
+    # { "mensaje": "Suscripción registrada correctamente" }  (Status 201)
+    # Si el correo ya estaba suscrito:
+    # { "mensaje": "Este correo ya se encuentra suscrito" }  (Status 200)
+    # -------------------------------------------------------------------------
+    path('newsletter/suscribir/', views.newsletter_suscribir, name='newsletter-suscribir'),
 ]

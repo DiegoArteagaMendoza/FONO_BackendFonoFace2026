@@ -3,8 +3,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
-from FonoAppNoticias.models import FonoApp_Noticias, FonoApp_Noticia_Imagen
-from FonoAppNoticias.serializer import FonoApp_NoticiasSerializer
+from FonoAppNoticias.models import FonoApp_Noticias, FonoApp_Noticia_Imagen, FonoApp_Newsletter
+from FonoAppNoticias.serializer import FonoApp_NoticiasSerializer, FonoApp_NewsletterSerializer
 from FonoAppFunciones.authentication import CustomJWTAuthentication
 
 @api_view(['GET'])
@@ -121,3 +121,30 @@ def noticia_imagen_eliminar(request, id_imagen):
         
     except FonoApp_Noticia_Imagen.DoesNotExist:
         return Response({'error': 'La imagen no existe'}, status=status.HTTP_404_NOT_FOUND)
+@api_view(['POST'])
+@permission_classes([AllowAny]) # Público: cualquier visitante del portal puede suscribirse
+def newsletter_suscribir(request):
+    """
+    Registra un correo en el newsletter.
+    Si el correo ya existe pero estaba desactivado, se reactiva.
+    """
+    email = request.data.get('email', '').strip().lower()
+
+    if not email:
+        return Response({'error': 'El correo electrónico es obligatorio'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Si ya existe, no duplicamos: reactivamos si estaba dado de baja
+    suscripcion_existente = FonoApp_Newsletter.objects.filter(email=email).first()
+    if suscripcion_existente:
+        if not suscripcion_existente.estado:
+            suscripcion_existente.estado = True
+            suscripcion_existente.save(update_fields=['estado'])
+            return Response({'mensaje': 'Suscripción reactivada correctamente'}, status=status.HTTP_200_OK)
+        return Response({'mensaje': 'Este correo ya se encuentra suscrito'}, status=status.HTTP_200_OK)
+
+    serializer = FonoApp_NewsletterSerializer(data={'email': email})
+    if serializer.is_valid():
+        serializer.save()
+        return Response({'mensaje': 'Suscripción registrada correctamente'}, status=status.HTTP_201_CREATED)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

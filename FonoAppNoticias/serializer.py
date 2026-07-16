@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from FonoAppNoticias.models import FonoApp_Noticias, FonoApp_Noticia_Imagen
+from FonoAppNoticias.models import FonoApp_Noticias, FonoApp_Noticia_Imagen, FonoApp_Newsletter
 
 # 1. Serializer secundario para formatear la salida de las imágenes en el GET
 class FonoApp_Noticia_ImagenSerializer(serializers.ModelSerializer):
@@ -58,3 +58,10 @@ class FonoApp_NoticiasSerializer(serializers.ModelSerializer):
             contenido=validated_data.get('contenido'),
             imagenes=imagenes
         )
+
+# 3. Serializer para las suscripciones al Newsletter
+class FonoApp_NewsletterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FonoApp_Newsletter
+        fields = ['id_suscripcion', 'email', 'fecha_suscripcion', 'estado']
+        read_only_fields = ['id_suscripcion', 'fecha_suscripcion', 'estado']

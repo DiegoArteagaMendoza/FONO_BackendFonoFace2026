@@ -36,6 +36,26 @@ class FonoApp_Noticias(models.Model):
 
 
 # =========================================================
+# MODELO PARA LAS SUSCRIPCIONES AL NEWSLETTER
+# =========================================================
+class FonoApp_Newsletter(models.Model):
+    id_suscripcion = models.AutoField("Codigo suscripcion", primary_key=True)
+    email = models.EmailField(max_length=254, unique=True, verbose_name='Correo electrónico')
+    fecha_suscripcion = models.DateTimeField(auto_now_add=True, verbose_name='Fecha de suscripción')
+    estado = models.BooleanField(default=True, verbose_name='Activo') # Para borrado lógico / desuscripción
+
+    class Meta:
+        db_table = 'FonoApp_Newsletter'
+        managed = True
+        verbose_name = "Suscripción al Newsletter"
+        verbose_name_plural = "Suscripciones al Newsletter"
+        ordering = ['-fecha_suscripcion']
+
+    def __str__(self):
+        return f'{self.email} - {self.fecha_suscripcion.strftime("%d/%m/%Y")}'
+
+
+# =========================================================
 # MODELO PARA MANEJAR LAS IMÁGENES (0 a 4)
 # =========================================================
 class FonoApp_Noticia_Imagen(models.Model):
