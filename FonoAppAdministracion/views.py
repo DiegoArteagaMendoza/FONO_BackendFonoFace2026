@@ -103,6 +103,30 @@ def usuario_actualizar_password(request, rut):
         
     return Response({'error': 'Usuario no encontrado o RUT incorrecto'}, status=status.HTTP_404_NOT_FOUND)
 
+@api_view(['PATCH'])
+@authentication_classes([CustomJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def usuario_editar_parcial(request, rut):
+    """
+    Endpoint para actualizar parcialmente los permisos, estado y contraseña 
+    de un usuario mediante su RUT.
+    """
+    estado = request.data.get('estado')
+    is_staff = request.data.get('is_staff')
+    password = request.data.get('password')
+
+    # Llamamos al método especializado que creamos en el queryset
+    actualizado = FonoApp_Administracion.objects.editar_usuario_parcial(
+        rut=rut,
+        estado=estado,
+        is_staff=is_staff,
+        password=password
+    )
+
+    if actualizado:
+        return Response({'mensaje': 'Usuario actualizado correctamente'}, status=status.HTTP_200_OK)
+    
+    return Response({'error': 'Usuario no encontrado o RUT incorrecto'}, status=status.HTTP_404_NOT_FOUND)
 
 # ========================================
 # BANNER

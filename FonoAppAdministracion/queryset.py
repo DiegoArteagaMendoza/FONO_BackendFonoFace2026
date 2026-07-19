@@ -45,6 +45,36 @@ class FonoAPP_Queryset(models.QuerySet):
         
         return filas_actualizadas > 0
     
+    def editar_usuario_parcial(self, rut, estado=None, is_staff=None, password=None):
+        """
+        Actualiza el estado (activo/inactivo), permisos (staff) y opcionalmente 
+        la contraseña de un usuario buscando por su RUT.
+        """
+        usuario = self.filter(rut=rut).first()
+        if not usuario:
+            return False
+
+        # Campos a actualizar para optimizar la consulta a la BDD
+        campos_actualizar = []
+
+        if estado is not None:
+            usuario.estado = estado
+            campos_actualizar.append('estado')
+            
+        if is_staff is not None:
+            usuario.is_staff = is_staff
+            campos_actualizar.append('is_staff')
+            
+        if password:
+            usuario.password = make_password(password)
+            campos_actualizar.append('password')
+
+        # Guardamos solo los campos que sufrieron modificaciones
+        if campos_actualizar:
+            usuario.save(update_fields=campos_actualizar)
+            
+        return True
+    
     # =======================================
     # BANNER QUERYSET
     # =======================================

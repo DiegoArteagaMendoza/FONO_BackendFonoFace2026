@@ -75,6 +75,20 @@ urlpatterns = [
     # -------------------------------------------------------------------------
     path('<str:rut>/actualizar-password/', views.usuario_actualizar_password, name='usuario-actualizar-password'),
 
+    # -------------------------------------------------------------------------
+    # MÉTODO: PATCH
+    # URL: /api/usuarios/12345678-9/editar/
+    # HEADERS: { "Authorization": "Bearer <tu_access_token>" }
+    # BODY (JSON): 
+    # {
+    #   "estado": true,
+    #   "is_staff": false,
+    #   "password": "nueva_password" (Este es opcional)
+    # }
+    # USO: Actualiza el estado, permisos de staff o contraseña de un usuario usando su RUT.
+    # -------------------------------------------------------------------------
+    path('<str:rut>/editar/', views.usuario_editar_parcial, name='usuario-editar'),
+
 
     # =========================================================================
     # RUTAS DE BANNERS DE INICIO
