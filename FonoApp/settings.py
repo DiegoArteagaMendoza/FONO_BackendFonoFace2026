@@ -16,6 +16,7 @@ DEV_APPS = [
     'FonoAppDiagnostico',
     'FonoAppInformacion',
     'FonoAppNoticias',
+    'FonoAppInfoGeneral'
 ]
 
 BASE_APPS = [
