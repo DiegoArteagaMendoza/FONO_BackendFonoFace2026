@@ -22,7 +22,7 @@ def usuarios_create(request):
 @permission_classes([IsAuthenticated]) # <-- Maneja la validación de acceso automáticamente
 def usuarios_list(request):
     # Utilizamos el filtro estándar ya que "activos()" no está definido en el queryset
-    usuarios = FonoApp_Administracion.objects.filter(estado=True)
+    usuarios = FonoApp_Administracion.objects
     serializer = FonoApp_Serializer(usuarios, many=True)
     return Response(serializer.data)
 

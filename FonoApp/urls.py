@@ -9,6 +9,7 @@ urlpatterns = [
     path('api/noticias/', include('FonoAppNoticias.urls')), 
     path('api/informacion/', include('FonoAppInformacion.urls')),
     path('api/cuidados/', include('FonoAppCuidados.urls')),
+    path('api/info-general/', include('FonoAppInfoGeneral.urls')),
 ]
 
 # Esto sirve los archivos físicos solo cuando se esta en modo desarrollo (DEBUG=True)
