@@ -185,6 +185,29 @@ def banner_editar(request, id_banner):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # -------------------------------------------------------------------------
+# MÉTODO: PUT / PATCH
+# USO: Reemplaza la imagen de un banner existente (Requiere Token JWT)
+# -------------------------------------------------------------------------
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def banner_imagen_actualizar(request, id_banner):
+    # Un banner solo admite una (1) imagen, así que esta operación siempre reemplaza la existente
+    nuevas_imagenes = request.FILES.getlist('imagenes_subidas')
+
+    if not nuevas_imagenes:
+        return Response({'error': 'Debe adjuntar una imagen'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(nuevas_imagenes) > 1:
+        return Response({'error': 'Solo se permite adjuntar una (1) imagen por banner'}, status=status.HTTP_400_BAD_REQUEST)
+
+    exito, mensaje = FonoApp_Banner_Inicio.objects.actualizar_imagen(id_banner, nuevas_imagenes[0])
+
+    if exito:
+        return Response({'mensaje': mensaje}, status=status.HTTP_200_OK)
+
+    return Response({'error': mensaje}, status=status.HTTP_404_NOT_FOUND)
+
+# -------------------------------------------------------------------------
 # MÉTODO: DELETE
 # USO: Realiza un borrado lógico del banner (Requiere Token JWT)
 # -------------------------------------------------------------------------

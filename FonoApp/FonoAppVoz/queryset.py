@@ -36,6 +36,8 @@ class FonoApp_Voz_Queryset(models.QuerySet):
         if 'img' in datos_a_actualizar and datos_a_actualizar['img']:
             try:
                 instancia = self.get(id_voz=id_voz, estado=True)
+                if instancia.img:
+                    instancia.img.delete(save=False)
                 for campo, valor in datos_a_actualizar.items():
                     setattr(instancia, campo, valor)
                 instancia.save()

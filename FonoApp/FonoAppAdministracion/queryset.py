@@ -110,4 +110,25 @@ class FonoApp_Banner_Queryset(models.QuerySet):
     def eliminar_logico(self, id_banner):
         """Realiza la baja lógica cambiando el estado a False."""
         return self.filter(id_banner=id_banner).update(estado=False)
+
+    def actualizar_imagen(self, id_banner, nueva_imagen):
+        """
+        Reemplaza la imagen de un banner: borra el archivo físico anterior y su
+        registro, y guarda la nueva imagen. Mantiene el límite de 1 imagen por banner.
+        Retorna una tupla (exito_booleano, mensaje_string).
+        """
+        try:
+            banner = self.get(pk=id_banner, estado=True)
+        except models.ObjectDoesNotExist:
+            return False, "Banner no encontrado o inactivo."
+
+        from .models import FonoApp_Banner_Inicio_Imagenes
+
+        for imagen_anterior in banner.imagenes.all():
+            imagen_anterior.imagen.delete(save=False)
+            imagen_anterior.delete()
+
+        FonoApp_Banner_Inicio_Imagenes.objects.create(banner=banner, imagen=nueva_imagen)
+
+        return True, "Imagen del banner actualizada correctamente."
         

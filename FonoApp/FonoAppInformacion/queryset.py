@@ -5,6 +5,26 @@ from django.db import models
 from django.utils import timezone
 from django.core.files.base import ContentFile
 
+def _convertir_a_webp(img):
+    """
+    Convierte un archivo de imagen subido a formato WebP y devuelve un ContentFile listo para guardar.
+    """
+    imagen_pil = Image.open(img)
+
+    # Asegurar compatibilidad de color (WebP soporta RGBA para transparencias de PNG)
+    # Si viene en modo Paleta (P) o CMYK, lo pasamos a RGBA o RGB
+    if imagen_pil.mode not in ("RGB", "RGBA"):
+        imagen_pil = imagen_pil.convert("RGBA")
+
+    buffer = BytesIO()
+    imagen_pil.save(buffer, format="WEBP", quality=85)
+
+    nombre_base = os.path.splitext(img.name)[0]
+    nombre_webp = f"{nombre_base}.webp"
+
+    return ContentFile(buffer.getvalue(), name=nombre_webp)
+
+
 class FonoApp_Informacion_Queryset(models.QuerySet):
 
     # =========================================================
@@ -54,33 +74,14 @@ class FonoApp_Informacion_Queryset(models.QuerySet):
 
         # 3. Guardar imágenes si existen (Convirtiendo a WebP)
         if imagenes:
-            from .models import FonoApp_Informacion_Imagen 
-            
+            from .models import FonoApp_Informacion_Imagen
+
             for img in imagenes:
-                # Abrir la imagen en memoria usando Pillow
-                imagen_pil = Image.open(img)
-                
-                # Asegurar compatibilidad de color (WebP soporta RGBA para transparencias de PNG)
-                # Si viene en modo Paleta (P) o CMYK, lo pasamos a RGBA o RGB
-                if imagen_pil.mode not in ("RGB", "RGBA"):
-                    imagen_pil = imagen_pil.convert("RGBA")
-                
-                # Crear un buffer en memoria para la nueva imagen WebP
-                buffer = BytesIO()
-                
-                # Guardar la imagen en el buffer (puedes ajustar 'quality' de 1 a 100)
-                imagen_pil.save(buffer, format="WEBP", quality=85)
-                
-                # Extraer el nombre original sin extensión y agregar .webp
-                nombre_base = os.path.splitext(img.name)[0]
-                nombre_webp = f"{nombre_base}.webp"
-                
-                # Crear un archivo de Django a partir del buffer
-                archivo_webp = ContentFile(buffer.getvalue(), name=nombre_webp)
-                
+                archivo_webp = _convertir_a_webp(img)
+
                 # Crear la instancia (esto guarda el archivo físico en la carpeta upload_to)
                 FonoApp_Informacion_Imagen.objects.create(
-                    informacion=informacion, 
+                    informacion=informacion,
                     imagen=archivo_webp
                 )
 
@@ -109,3 +110,27 @@ class FonoApp_Informacion_Queryset(models.QuerySet):
         """
         filas_actualizadas = self.filter(id_informacion=id_informacion).update(estado=False)
         return filas_actualizadas > 0
+
+    def agregar_imagenes(self, id_informacion, nuevas_imagenes):
+        """
+        Agrega nuevas imágenes (convertidas a WebP) a un registro existente,
+        validando que no se supere el máximo de 4 imágenes.
+        Retorna una tupla (exito_booleano, mensaje_string).
+        """
+        try:
+            informacion = self.get(id_informacion=id_informacion, estado=True)
+        except models.ObjectDoesNotExist:
+            return False, "Información no encontrada o inactiva."
+
+        cantidad_actual = informacion.imagenes.count()
+
+        if cantidad_actual + len(nuevas_imagenes) > 4:
+            return False, f"Límite excedido. El registro ya tiene {cantidad_actual} imágenes y solo puedes tener un máximo de 4."
+
+        from .models import FonoApp_Informacion_Imagen
+
+        for img in nuevas_imagenes:
+            archivo_webp = _convertir_a_webp(img)
+            FonoApp_Informacion_Imagen.objects.create(informacion=informacion, imagen=archivo_webp)
+
+        return True, "Imágenes agregadas correctamente."

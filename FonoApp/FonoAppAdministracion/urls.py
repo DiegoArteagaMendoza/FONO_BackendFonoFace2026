@@ -144,6 +144,17 @@ urlpatterns = [
     path('banners/<int:id_banner>/editar/', views.banner_editar, name='banner-editar'),
 
     # -------------------------------------------------------------------------
+    # MÉTODO: PUT o PATCH
+    # URL: /api/usuarios/banners/1/imagen/editar/  <-- Reemplazar '1' por el id_banner
+    # HEADERS: { "Authorization": "Bearer <tu_access_token>" }
+    # BODY (FormData / multipart/form-data):
+    #   imagenes_subidas: [Archivo de imagen] (Exactamente 1 archivo)
+    # USO: Reemplaza la imagen actual del banner por una nueva (borra la anterior del servidor).
+    # RESPUESTA ESPERADA (JSON): { "mensaje": "Imagen del banner actualizada correctamente" }
+    # -------------------------------------------------------------------------
+    path('banners/<int:id_banner>/imagen/editar/', views.banner_imagen_actualizar, name='banner-imagen-editar'),
+
+    # -------------------------------------------------------------------------
     # MÉTODO: DELETE
     # URL: /api/usuarios/banners/1/eliminar/ <-- Reemplazar '1' por el id_banner
     # HEADERS: { "Authorization": "Bearer <tu_access_token>" }

@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
-from FonoAppInformacion.models import FonoApp_Informacion
+from FonoAppInformacion.models import FonoApp_Informacion, FonoApp_Informacion_Imagen
 from FonoAppInformacion.serializer import FonoApp_InformacionSerializer
 from FonoAppFunciones.authentication import CustomJWTAuthentication
 
@@ -62,7 +62,8 @@ def informacion_crear(request):
 def informacion_editar(request, id_informacion):
     """
     Edita los campos de texto de un registro (título, categoría, contenido).
-    No procesa imágenes (esas deben manejarse en un endpoint aparte si se requiere editarlas).
+    No procesa imágenes: para agregar o eliminar imágenes de un registro existente
+    usa informacion_imagen_agregar / informacion_imagen_eliminar.
     """
     try:
         informacion = FonoApp_Informacion.objects.get(id_informacion=id_informacion, estado=True)
@@ -103,8 +104,54 @@ def informacion_eliminar(request, id_informacion):
     Realiza un borrado lógico del registro.
     """
     actualizado = FonoApp_Informacion.objects.eliminar_logico(id_informacion)
-    
+
     if actualizado:
         return Response({'mensaje': 'Información eliminada correctamente'}, status=status.HTTP_200_OK)
-        
+
     return Response({'error': 'Registro no encontrado o ya eliminado'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# =========================================================
+# 5. AGREGAR IMÁGENES
+# =========================================================
+@api_view(['POST'])
+@authentication_classes([CustomJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def informacion_imagen_agregar(request, id_informacion):
+    """
+    Recibe nuevas imágenes y las asocia a un registro de información existente.
+    """
+    nuevas_imagenes = request.FILES.getlist('imagenes_subidas')
+
+    if not nuevas_imagenes:
+        return Response({'error': 'No se adjuntaron imágenes en la petición'}, status=status.HTTP_400_BAD_REQUEST)
+
+    exito, mensaje = FonoApp_Informacion.objects.agregar_imagenes(id_informacion, nuevas_imagenes)
+
+    if exito:
+        return Response({'mensaje': mensaje}, status=status.HTTP_201_CREATED)
+
+    return Response({'error': mensaje}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# =========================================================
+# 6. ELIMINAR UNA IMAGEN
+# =========================================================
+@api_view(['DELETE'])
+@authentication_classes([CustomJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def informacion_imagen_eliminar(request, id_imagen):
+    """
+    Elimina físicamente una imagen del servidor y su registro de la base de datos.
+    Nota: Recibe el ID de la imagen, no el del registro de información.
+    """
+    try:
+        imagen = FonoApp_Informacion_Imagen.objects.get(id=id_imagen)
+        # 1. Borramos el archivo físico de la carpeta /media/informacion/imagenes/
+        imagen.imagen.delete(save=False)
+        # 2. Borramos el registro de la tabla FonoApp_Informacion_Imagen
+        imagen.delete()
+        return Response({'mensaje': 'Imagen eliminada correctamente'}, status=status.HTTP_200_OK)
+
+    except FonoApp_Informacion_Imagen.DoesNotExist:
+        return Response({'error': 'La imagen no existe'}, status=status.HTTP_404_NOT_FOUND)
