@@ -33,4 +33,4 @@ dist/
 *.egg-info/
 
 # imagenes
-/media
+/FonoApp/media

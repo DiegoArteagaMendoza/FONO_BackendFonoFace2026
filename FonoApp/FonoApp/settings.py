@@ -1,14 +1,36 @@
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-)dj+y&$f2+q)elr0c!&k2fo^*^y+l$p*&l+civ#k3)fx959a0%'
+# Carga variables desde FonoApp/.env (no sobreescribe variables ya definidas en el entorno real,
+# por lo que en producción basta con exportar las variables del sistema/proveedor de hosting).
+load_dotenv(BASE_DIR / '.env')
 
-RECAPTCHA_SECRET_KEY = '6LfRpCUtAAAAACCBt7qHtR_2WYPGjM3mcoQUwrku'
 
-DEBUG = True
+def env_bool(nombre, default=False):
+    """Convierte el valor de una variable de entorno tipo 'true'/'false' a booleano."""
+    return os.environ.get(nombre, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
 
-ALLOWED_HOSTS = []
+
+def env_list(nombre, default=''):
+    """Convierte una variable de entorno separada por comas en una lista de strings."""
+    valor = os.environ.get(nombre, default)
+    return [item.strip() for item in valor.split(',') if item.strip()]
+
+
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-)dj+y&$f2+q)elr0c!&k2fo^*^y+l$p*&l+civ#k3)fx959a0%'
+)
+
+RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '')
+
+DEBUG = env_bool('DEBUG', True)
+
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
 DEV_APPS = [
     'FonoAppAdministracion',
@@ -16,7 +38,8 @@ DEV_APPS = [
     'FonoAppDiagnostico',
     'FonoAppInformacion',
     'FonoAppNoticias',
-    'FonoAppInfoGeneral'
+    'FonoAppInfoGeneral',
+    'FonoAppVoz',
 ]
 
 BASE_APPS = [
@@ -47,9 +70,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:4200",
-]
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', 'http://localhost:4200')
 
 ROOT_URLCONF = 'FonoApp.urls'
 
@@ -71,17 +92,31 @@ TEMPLATES = [
 WSGI_APPLICATION = 'FonoApp.wsgi.application'
 
 
-# Dev db
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql', # Motor de base de datos
-        'NAME': 'fonoDevDB',                 # Nombre de tu base de datos PostgreSQL
-        'USER': 'admin',                   # Usuario de PostgreSQL
-        'PASSWORD': 'secret',            # Contraseña del usuario
-        'HOST': 'localhost',                       # O la IP/dominio de tu servidor DB
-        'PORT': '5432',                            # Puerto por defecto de PostgreSQL
+# Base de datos:
+# - En desarrollo se arma con las variables DB_* (ver .env / .env.example, coinciden con docker-compose.yml).
+# - En despliegue, si se define DATABASE_URL (formato estándar de 12-factor: postgres://user:pass@host:port/nombre),
+#   esta tiene prioridad sobre las variables DB_* (ver .env.production.example).
+if os.environ.get('DATABASE_URL'):
+    import dj_database_url
+
+    DATABASES = {
+        'default': dj_database_url.parse(
+            os.environ['DATABASE_URL'],
+            conn_max_age=600,
+            ssl_require=env_bool('DATABASE_SSL_REQUIRE', not DEBUG),
+        )
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'fonoDevDB'),
+            'USER': os.environ.get('DB_USER', 'admin'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', 'secret'),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -123,10 +158,10 @@ AUTH_USER_MODEL = 'FonoAppAdministracion.FonoApp_Administracion' # Formato: 'nom
 # JWT config
 from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('JWT_ACCESS_MINUTES', 60))),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=int(os.environ.get('JWT_REFRESH_DAYS', 1))),
     'AUTH_HEADER_TYPES': ('Bearer',),
-    
+
     # AGREGA ESTA LÍNEA:
     'USER_ID_FIELD': 'id_usuario',  # Aquí le decimos que use tu campo personalizado
     'USER_ID_CLAIM': 'user_id',    # Este es el nombre que tendrá dentro del token JSON
@@ -135,8 +170,6 @@ SIMPLE_JWT = {
 """
     MANEJO DE IMAGENES
 """
-
-import os
 
 # Carpeta física donde se guardan los archivos
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
