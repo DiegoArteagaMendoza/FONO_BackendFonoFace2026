@@ -70,6 +70,8 @@ BASE_APPS = [
 
 DEV_APPS = [
     'PmMedico',
+    'PmCliente',
+    'PmVideo',
 ]
 
 FRAMEWORKS = [
@@ -178,7 +180,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 """
-    MANEJO DE ARCHIVOS (documentos de respaldo de los profesionales)
+    MANEJO DE ARCHIVOS (documentos de respaldo de los profesionales y
+    videos de síntomas de los pacientes)
 """
 
 # Carpeta física donde se guardan los archivos subidos
