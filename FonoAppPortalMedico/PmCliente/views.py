@@ -1,8 +1,9 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
+from Security.permissions import EsAdministrador, EsProfesional
 from PmCliente.models import PmCliente
 from PmCliente.serializer import PmClienteSerializer
 
@@ -29,15 +30,14 @@ def cliente_registrar(request):
 # ==========================================================================
 # ENDPOINTS DE GESTIÓN (protegidos)
 # --------------------------------------------------------------------------
-# Estos endpoints exponen datos personales (RUT, correo, teléfono), por eso
-# exigen autenticación. IMPORTANTE: el Portal Médico todavía no tiene su
-# autenticación resuelta, así que hoy responden 403. Cuando se defina el
-# esquema de login del portal basta con agregar aquí su clase de
-# autenticación (como hace FonoApp con CustomJWTAuthentication).
+# Exponen datos personales del paciente (RUT, correo, teléfono), por eso usan
+# los roles definidos en Security/permissions.py:
+#   - Consultar: el profesional que atiende o un administrador.
+#   - Modificar/eliminar: solo administrador.
 # ==========================================================================
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsProfesional | EsAdministrador])
 def clientes_listar(request):
     """
     Lista los clientes activos. Admite búsqueda con ?buscar=texto
@@ -54,7 +54,7 @@ def clientes_listar(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsProfesional | EsAdministrador])
 def cliente_detalle(request, id_cliente):
     """
     Retorna los datos de un cliente puntual.
@@ -69,7 +69,7 @@ def cliente_detalle(request, id_cliente):
 
 
 @api_view(['PUT', 'PATCH'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsAdministrador])
 def cliente_editar(request, id_cliente):
     """
     Edita los datos de un cliente activo.
@@ -90,7 +90,7 @@ def cliente_editar(request, id_cliente):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsAdministrador])
 def cliente_eliminar(request, id_cliente):
     """
     Realiza un borrado lógico del cliente.

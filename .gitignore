@@ -35,7 +35,8 @@ dist/
 # imagenes
 /FonoApp/media
 
-# Archivos subidos en el Portal Médico (incluye los videos de síntomas de los
-# pacientes: son datos clínicos, no deben viajar en el repositorio)
+# Archivos subidos en el Portal Médico: documentos de respaldo de los
+# profesionales y videos de síntomas de los pacientes. Son datos personales
+# y clínicos, no deben viajar en el repositorio.
 /FonoAppPortalMedico/media
 /media

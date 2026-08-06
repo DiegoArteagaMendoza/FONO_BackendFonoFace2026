@@ -1,9 +1,10 @@
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
+from Security.permissions import EsAdministrador, EsProfesional
 from PmVideo.models import PmVideo
 from PmVideo.serializer import PmVideoSerializer
 
@@ -36,12 +37,13 @@ def video_subir(request):
 # ==========================================================================
 # CONSULTA Y ELIMINACIÓN (lado del profesional)
 # --------------------------------------------------------------------------
-# Exponen material clínico del paciente, por eso exigen autenticación.
-# Hoy responden 403 hasta que se defina el login del Portal Médico.
+# Exponen material clínico del paciente, por eso usan los roles definidos en
+# Security/permissions.py: el profesional que revisa los síntomas o un
+# administrador del sistema.
 # ==========================================================================
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsProfesional | EsAdministrador])
 def videos_listar(request):
     """
     Lista los videos vigentes. Se puede filtrar por cliente: ?cliente=1
@@ -59,7 +61,7 @@ def videos_listar(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsProfesional | EsAdministrador])
 def video_detalle(request, id_video):
     """Retorna un video puntual, solo si sigue vigente."""
     video = PmVideo.objects.vigentes().filter(id_video=id_video).first()
@@ -75,7 +77,7 @@ def video_detalle(request, id_video):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([EsProfesional | EsAdministrador])
 def video_eliminar(request, id_video):
     """
     Elimina el video por orden del médico: borra el archivo del disco y deja
