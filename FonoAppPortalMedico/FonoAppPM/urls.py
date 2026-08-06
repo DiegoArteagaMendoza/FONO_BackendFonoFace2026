@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/pm/medicos', include('PmMedico.urls')),
+    path('api/pm/medicos/', include('PmMedico.urls')),
 ]
 
 # Esto sirve los archivos físicos solo cuando se esta en modo desarrollo (DEBUG=True)

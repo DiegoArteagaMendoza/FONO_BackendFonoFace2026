@@ -50,8 +50,26 @@ class FonoApp_Serializer(serializers.ModelSerializer):
 
     class Meta:
         model = FonoApp_Administracion
-        fields = ['id_usuario', 'nombre', 'rut', 'email', 'tipo', 'estado', 'is_staff', 'password', 'last_conection']
-        read_only_fields = ['id_usuario']
+        fields = [
+            'id_usuario', 'nombre', 'rut', 'email', 'tipo', 'estado',
+            'is_staff', 'is_superuser', 'password', 'last_conection',
+        ]
+        # 'is_staff' e 'is_superuser' son campos normales (escribibles) a nivel de
+        # serializer a propósito: este MISMO serializer lo usa tanto
+        # usuarios_create (AllowAny, registro público inicial) como el panel de
+        # administración ya autenticado, que sí necesita poder definir los
+        # permisos del usuario nuevo desde el primer momento. Que "nadie pueda
+        # autoasignarse permisos sin estar ya autorizado para ello" NO se aplica
+        # aquí, sino en la vista usuarios_create, que sanea request.data según
+        # quién hace la petición ANTES de construir este serializer (ver
+        # views.usuarios_create). El resto de las vistas de edición (
+        # usuario_editar_parcial) tienen su propia validación de permisos.
+        read_only_fields = ['id_usuario', 'last_conection']
+        extra_kwargs = {
+            'is_staff': {'required': False},
+            'is_superuser': {'required': False},
+            'estado': {'required': False},
+        }
 
     def create(self, validated_data):
         # Llamamos al método personalizado del QuerySet

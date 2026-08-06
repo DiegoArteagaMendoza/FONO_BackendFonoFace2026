@@ -10,22 +10,51 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+from datetime import timedelta
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carga variables desde FonoAppPortalMedico/.env (no sobreescribe variables ya definidas
+# en el entorno real, por lo que en producción basta con exportar las variables del
+# proveedor de hosting).
+load_dotenv(BASE_DIR / '.env')
+
+
+def env_bool(nombre, default=False):
+    """Convierte el valor de una variable de entorno tipo 'true'/'false' a booleano."""
+    return os.environ.get(nombre, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def env_list(nombre, default=''):
+    """Convierte una variable de entorno separada por comas en una lista de strings."""
+    valor = os.environ.get(nombre, default)
+    return [item.strip() for item in valor.split(',') if item.strip()]
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-4i=)6s6&^)5y9lftbu@7^yryotkohz4h2vp@ow3(ht+@w715i*'
+# IMPORTANTE: este proyecto (Portal Médico) y el proyecto principal FonoApp comparten
+# la misma base de datos PostgreSQL (ver docker-compose.yml) y los administradores
+# inician sesión únicamente en FonoApp. Para que un JWT emitido por el login de
+# FonoApp sea válido aquí (por ejemplo, para aprobar acreditaciones), el SECRET_KEY
+# de ambos proyectos DEBE ser el mismo. En despliegue, define la misma variable de
+# entorno SECRET_KEY en ambos servicios.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-)dj+y&$f2+q)elr0c!&k2fo^*^y+l$p*&l+civ#k3)fx959a0%'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool('DEBUG', True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
 
 # Application definition
@@ -62,9 +91,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:4200",
-]
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', 'http://localhost:4200')
 
 ROOT_URLCONF = 'FonoAppPM.urls'
 
@@ -88,17 +115,30 @@ WSGI_APPLICATION = 'FonoAppPM.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+# Misma base de datos física que FonoApp (ver docker-compose.yml en la raíz del repo):
+# aquí viven, entre otras, la tabla FonoApp_Administracion que PmMedico consulta
+# (de solo lectura, vía un modelo no gestionado) para saber quién es administrador.
+if os.environ.get('DATABASE_URL'):
+    import dj_database_url
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql', # Motor de base de datos
-        'NAME': 'fonoDevDB',                 # Nombre de tu base de datos PostgreSQL
-        'USER': 'admin',                   # Usuario de PostgreSQL
-        'PASSWORD': 'secret',            # Contraseña del usuario
-        'HOST': 'localhost',                       # O la IP/dominio de tu servidor DB
-        'PORT': '5432',                            # Puerto por defecto de PostgreSQL
+    DATABASES = {
+        'default': dj_database_url.parse(
+            os.environ['DATABASE_URL'],
+            conn_max_age=600,
+            ssl_require=env_bool('DATABASE_SSL_REQUIRE', not DEBUG),
+        )
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'fonoDevDB'),
+            'USER': os.environ.get('DB_USER', 'admin'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', 'secret'),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+        }
+    }
 
 
 # Password validation
@@ -136,3 +176,35 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+"""
+    MANEJO DE ARCHIVOS (documentos de respaldo de los profesionales)
+"""
+
+# Carpeta física donde se guardan los archivos subidos
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# URL base desde la cual se servirán en el navegador
+MEDIA_URL = '/media/'
+
+# Django REST Framework: por defecto todo endpoint requiere autenticación;
+# cada vista pública debe declarar explícitamente @permission_classes([AllowAny]).
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'Security.authentication.PmMedicoJWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+# JWT config (debe coincidir con la de FonoApp para que los tokens de administrador
+# emitidos allá se puedan decodificar aquí; ver PmMedico/authentication.py).
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('JWT_ACCESS_MINUTES', 60))),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=int(os.environ.get('JWT_REFRESH_DAYS', 1))),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# Tamaño máximo de archivo aceptado para los documentos de respaldo (en MB).
+PM_MEDICO_DOCUMENTO_MAX_MB = int(os.environ.get('PM_MEDICO_DOCUMENTO_MAX_MB', 5))
