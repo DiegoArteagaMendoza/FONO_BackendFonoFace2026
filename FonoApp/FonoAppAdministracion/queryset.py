@@ -1,24 +1,51 @@
 from django.db import models
+from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.hashers import make_password
 
 class FonoAPP_Queryset(models.QuerySet):
     def is_activo(self, rut):
         return self.filter(rut=rut).filter(estado=True)
-    
+
     def crear_usuario(self, email, password=None, **extra_fields):
         """
         Crea un usuario encriptando la contraseña manualmente.
         """
         if not email:
             raise ValueError('El email es obligatorio')
-        
+
         email = email.lower() # Normalización básica
         # Encriptamos la contraseña antes de crear el registro
         if password:
             password = make_password(password)
-            
+
         return self.create(email=email, password=password, **extra_fields)
-    
+
+
+# Manager basado en BaseUserManager (en vez de FonoAPP_Queryset.as_manager()) para
+# que 'python manage.py createsuperuser' funcione con este modelo de usuario
+# personalizado: BaseUserManager aporta get_by_natural_key (requerido por el
+# comando) y aquí agregamos create_superuser. from_queryset(...) conserva intactos
+# todos los métodos de negocio de arriba (crear_usuario, validar_credenciales, etc.).
+class FonoAPP_Manager(BaseUserManager.from_queryset(FonoAPP_Queryset)):
+    def create_superuser(self, email, password=None, **extra_fields):
+        """
+        Crea un administrador con el 'rol máximo' (is_superuser=True), el único
+        habilitado para aprobar/rechazar acreditaciones en el Portal Médico
+        (ver PmMedico/permissions.EsAdministradorMaximo). Uso:
+            python manage.py createsuperuser
+        """
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_active', True)
+        extra_fields.setdefault('estado', True)
+        extra_fields['is_superuser'] = True
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('El superusuario debe tener is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('El superusuario debe tener is_superuser=True.')
+
+        return self.crear_usuario(email=email, password=password, **extra_fields)
+
     def validar_credenciales(self, email, password):        
         try:
             usuario = self.get(email=email)
@@ -45,10 +72,10 @@ class FonoAPP_Queryset(models.QuerySet):
         
         return filas_actualizadas > 0
     
-    def editar_usuario_parcial(self, rut, estado=None, is_staff=None, password=None):
+    def editar_usuario_parcial(self, rut, estado=None, is_staff=None, is_superuser=None, password=None):
         """
-        Actualiza el estado (activo/inactivo), permisos (staff) y opcionalmente 
-        la contraseña de un usuario buscando por su RUT.
+        Actualiza el estado (activo/inactivo), permisos (staff, rol máximo) y
+        opcionalmente la contraseña de un usuario buscando por su RUT.
         """
         usuario = self.filter(rut=rut).first()
         if not usuario:
@@ -60,11 +87,22 @@ class FonoAPP_Queryset(models.QuerySet):
         if estado is not None:
             usuario.estado = estado
             campos_actualizar.append('estado')
-            
+
         if is_staff is not None:
             usuario.is_staff = is_staff
             campos_actualizar.append('is_staff')
-            
+
+        if is_superuser is not None:
+            usuario.is_superuser = is_superuser
+            campos_actualizar.append('is_superuser')
+            # Invariante del modelo de 3 roles: SuperAdmin implica Admin. Si se
+            # otorga is_superuser sin haber marcado is_staff explícitamente en
+            # esta misma petición, lo activamos también para no dejar una
+            # cuenta inconsistente (superusuario sin acceso básico al panel).
+            if is_superuser and 'is_staff' not in campos_actualizar:
+                usuario.is_staff = True
+                campos_actualizar.append('is_staff')
+
         if password:
             usuario.password = make_password(password)
             campos_actualizar.append('password')

@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
-from FonoAppAdministracion.queryset import FonoAPP_Queryset, FonoApp_Banner_Queryset
+from FonoAppAdministracion.queryset import FonoAPP_Manager, FonoApp_Banner_Queryset
 
 class FonoApp_Administracion(AbstractBaseUser, PermissionsMixin):
     id_usuario = models.AutoField("Codigo registro usuario", primary_key=True)
@@ -17,8 +17,9 @@ class FonoApp_Administracion(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['nombre', 'rut']
     
-    # Vinculación del QuerySet como Manager
-    objects = FonoAPP_Queryset.as_manager()
+    # Manager basado en BaseUserManager (ver queryset.py) para soportar
+    # 'python manage.py createsuperuser' además de los métodos de negocio.
+    objects = FonoAPP_Manager()
     
     class Meta:
         db_table = 'FonoApp_Administracion'
