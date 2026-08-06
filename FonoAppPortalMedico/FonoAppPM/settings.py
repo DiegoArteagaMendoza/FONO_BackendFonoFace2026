@@ -41,6 +41,8 @@ BASE_APPS = [
 
 DEV_APPS = [
     'PmMedico',
+    'PmCliente',
+    'PmVideo',
 ]
 
 FRAMEWORKS = [
@@ -136,3 +138,16 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+"""
+    MANEJO DE IMAGENES
+"""
+
+import os
+
+# Carpeta física donde se guardan los archivos
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# URL base desde la cual se servirán en el navegador
+MEDIA_URL = '/media/'
