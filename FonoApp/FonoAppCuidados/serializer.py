@@ -8,10 +8,10 @@ class FonoApp_CuidadosSerializer(serializers.ModelSerializer):
     class Meta:
         model = FonoApp_Cuidados
         fields = [
-            'id_cuidado', 'publico', 'publico_display', 'titulo', 
-            'contenido', 'img', 'fuente', 'estado', 'FonoApp_Administracion'
+            'id_cuidado', 'publico', 'publico_display', 'titulo',
+            'contenido', 'img', 'fuente', 'estado', 'fecha_creacion', 'FonoApp_Administracion'
         ]
-        read_only_fields = ['id_cuidado', 'estado', 'FonoApp_Administracion']
+        read_only_fields = ['id_cuidado', 'estado', 'fecha_creacion', 'FonoApp_Administracion']
         
     def create(self, validated_data):
         usuario = self.context['request'].user
