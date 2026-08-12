@@ -7,6 +7,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/pm/medicos/', include('PmMedico.urls')),
     path('api/pm/clientes/', include('PmCliente.urls')),
+    path('api/pm/citas/', include('PmCita.urls')),
     path('api/pm/videos/', include('PmVideo.urls')),
 ]
 

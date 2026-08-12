@@ -20,6 +20,10 @@ class PmVideo_Queryset(models.QuerySet):
         """Videos vigentes de un cliente puntual."""
         return self.vigentes().filter(cliente_id=id_cliente)
 
+    def de_cita(self, id_cita):
+        """Videos vigentes adjuntos a una cita puntual."""
+        return self.vigentes().filter(cita_id=id_cita)
+
     def eliminar(self, id_video, motivo):
         """
         Elimina un video: borra el archivo físico del disco y marca el registro
