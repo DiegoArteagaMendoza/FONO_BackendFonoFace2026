@@ -5,6 +5,7 @@ from django.db import models
 from django.utils import timezone
 
 from PmCliente.models import PmCliente
+from PmCita.models import PmCita
 from PmVideo.queryset import PmVideo_Queryset
 
 # ==========================================================================
@@ -48,10 +49,18 @@ class PmVideo(models.Model):
         verbose_name='Cliente que sube el video'
     )
 
-    # NOTA: cuando exista el modelo de citas (PmCita) se agrega aquí la relación
-    # con la cita médica correspondiente:
-    # cita = models.ForeignKey('PmCita.PmCita', on_delete=models.CASCADE,
-    #                          related_name='videos', null=True, blank=True)
+    # Cita a la que pertenece el video (opcional): permite al médico revisarlo
+    # desde la cita puntual. on_delete=SET_NULL porque las citas no se borran
+    # físicamente (se cancelan cambiando su estado), pero por si alguna vez se
+    # elimina, el video no debe perderse: solo queda huérfano de cita.
+    cita = models.ForeignKey(
+        PmCita,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='videos',
+        verbose_name='Cita a la que pertenece el video',
+    )
 
     # Archivo y contenido
     video = models.FileField(upload_to='pm/videos/sintomas/', verbose_name='Video de síntomas')
