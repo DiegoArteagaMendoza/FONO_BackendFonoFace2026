@@ -25,6 +25,7 @@ class FonoApp_Cuidados(models.Model):
     img = models.ImageField(upload_to='cuidados/imagenes/', null=True, blank=True, verbose_name="Imagen")
     fuente = models.URLField(max_length=500, null=True, blank=True, verbose_name="Fuentes Científicas")
     estado = models.BooleanField(default=True, verbose_name="Activo") # 1 = activo / 0 = desactivado
+    fecha_creacion = models.DateTimeField(auto_now_add=True, null=True, verbose_name="Fecha de creación")
     
     # Relación con el usuario administrador
     FonoApp_Administracion = models.ForeignKey(
