@@ -1,0 +1,127 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Alternativa a deploy.yml para cuando el plan de hosting NO tiene acceso SSH
+# habilitado (solo FTP/SFTP). Úsalo si soporte de V2Networks confirma que el
+# Plan Emprendedor contratado no incluye "SSH Access" en cPanel.
+#
+# LIMITACIÓN IMPORTANTE: sin SSH no se puede ejecutar `pip install`,
+# `migrate` ni `collectstatic` de forma remota. Este workflow solo sincroniza
+# archivos. Después de cada deploy con cambios en dependencias o migraciones
+# hay que completarlo a mano:
+#   - Si cPanel ofrece "Terminal" (bajo Software/Advanced): entrar y correr
+#     manualmente `pip install -r requirements.txt && python manage.py migrate
+#     && python manage.py collectstatic --noinput`.
+#   - Si no hay Terminal disponible: usar "Setup Python App" → tu app → botón
+#     "Run Pip Install" (lee requirements.txt automáticamente) y ejecutar
+#     migrate/collectstatic desde ahí si la interfaz lo permite, o programar
+#     temporalmente un Cron Job que corra esos comandos una vez.
+# Por esto, si hay alguna forma de conseguir acceso SSH (aunque sea pedirlo
+# como upgrade puntual a soporte), usar deploy.yml es preferible.
+#
+# CÓMO ACTIVARLO:
+#   cp deploy/github-actions/deploy-sftp.yml .github/workflows/deploy.yml
+#
+# SECRETS a definir en GitHub → Settings → Secrets and variables → Actions:
+#   SFTP_HOST, SFTP_PORT, SFTP_USERNAME, SFTP_PASSWORD (o SFTP_PRIVATE_KEY si el
+#   proveedor soporta llave para SFTP)
+#   FONOAPP_REMOTE_PATH, PORTALMEDICO_REMOTE_PATH (rutas absolutas del Application root de cada app)
+# ─────────────────────────────────────────────────────────────────────────
+name: Deploy a V2Networks (cPanel, solo SFTP)
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-produccion
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests antes de desplegar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - working-directory: FonoApp
+        run: python manage.py test
+        env: { SECRET_KEY: ci-only-secret-key, DEBUG: "True" }
+      - working-directory: FonoAppPortalMedico
+        run: python manage.py test
+        env: { SECRET_KEY: ci-only-secret-key, DEBUG: "True" }
+
+  deploy-fonoapp:
+    name: Deploy FonoApp (SFTP)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir requirements.txt junto al proyecto
+        run: cp requirements.txt FonoApp/requirements.txt
+
+      - name: Subir archivos vía SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: "./FonoApp/*"
+          remote_path: ${{ secrets.FONOAPP_REMOTE_PATH }}
+          sftp_only: true
+          delete_remote_files: false   # no borrar media/ ni .env que solo existen en el servidor
+
+      - name: Marcar reinicio de Passenger (crea/actualiza tmp/restart.txt)
+        run: date > /tmp/restart.txt
+
+      - name: Subir marcador de reinicio
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: "/tmp/restart.txt"
+          remote_path: "${{ secrets.FONOAPP_REMOTE_PATH }}/tmp"
+          sftp_only: true
+
+  deploy-portalmedico:
+    name: Deploy FonoAppPortalMedico (SFTP)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir requirements.txt junto al proyecto
+        run: cp requirements.txt FonoAppPortalMedico/requirements.txt
+
+      - name: Subir archivos vía SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: "./FonoAppPortalMedico/*"
+          remote_path: ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+          sftp_only: true
+          delete_remote_files: false
+
+      - name: Marcar reinicio de Passenger (crea/actualiza tmp/restart.txt)
+        run: date > /tmp/restart.txt
+
+      - name: Subir marcador de reinicio
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          port: ${{ secrets.SFTP_PORT }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          local_path: "/tmp/restart.txt"
+          remote_path: "${{ secrets.PORTALMEDICO_REMOTE_PATH }}/tmp"
+          sftp_only: true

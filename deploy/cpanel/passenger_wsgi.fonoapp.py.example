@@ -1,0 +1,33 @@
+"""
+passenger_wsgi.py — punto de entrada que Passenger (cPanel) usa para levantar FonoApp.
+
+CÓMO USARLO:
+1. Copiar este archivo como "passenger_wsgi.py" en el Application root que definiste
+   en "Setup Python App" para FonoApp (ej. /home/tuusuario/fonoapp/passenger_wsgi.py),
+   junto a manage.py.
+2. Reemplazar "tuusuario" y "fonoapp" abajo por la ruta real del Application root.
+3. cPanel suele generar un passenger_wsgi.py automáticamente al crear la app con un
+   import deprecado (`imp`); este archivo lo reemplaza por una versión explícita y
+   sin ambigüedad, apuntando directo al WSGI de Django.
+4. Después de subir este archivo, reiniciar la app desde "Setup Python App" (botón
+   "Restart") o, en despliegues automatizados, actualizando tmp/restart.txt.
+"""
+
+import os
+import sys
+
+# Ruta absoluta al Application root en el servidor (donde vive manage.py).
+# Ejemplo real: "/home/tuusuario/fonoapp"
+PROJECT_ROOT = "/home/tuusuario/fonoapp"
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# Debe coincidir con el paquete de settings real: FonoApp/FonoApp/settings.py
+# (el manage.py de este proyecto vive en la raíz del Application root, y el
+# paquete de configuración se llama igual que la carpeta que lo contiene: "FonoApp").
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "FonoApp.settings")
+
+from django.core.wsgi import get_wsgi_application  # noqa: E402
+
+application = get_wsgi_application()

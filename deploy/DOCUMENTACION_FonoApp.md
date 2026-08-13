@@ -1,6 +1,6 @@
 # DOCUMENTACIÓN DEL PROYECTO FONOAPP (BACKEND)
 
-> Nota de alcance: este documento cubre el proyecto **FonoApp** y todas sus aplicaciones **excepto `FonoAppPortalMedico`**.
+> Nota de alcance: este documento cubre el proyecto **FonoApp** y todas sus aplicaciones **excepto `FonoAppPortalMedico`**, que tiene su propio documento: [`FonoAppPortalMedico/DOCUMENTACION.md`](../FonoAppPortalMedico/DOCUMENTACION.md). Para la guía de despliegue a producción (hosting, CI/CD, migración a MySQL) de ambos proyectos, ver [`DOCUMENTACION_DESPLIEGUE.md`](../DOCUMENTACION_DESPLIEGUE.md) en la raíz del repositorio.
 
 > Nota de estructura: este repositorio aloja **dos proyectos Django independientes** como carpetas hermanas en la raíz: `FonoApp/` (este proyecto, documentado aquí) y `FonoAppPortalMedico/` (proyecto aparte, no cubierto por este documento). Cada uno tiene su propio `manage.py` y su propio paquete de configuración (`FonoApp/FonoApp/settings.py` y `FonoAppPortalMedico/FonoAppPM/settings.py` respectivamente). El entorno virtual (`.venv/`), `docker-compose.yml` y `requirements.txt` son compartidos y viven en la raíz del repositorio, un nivel por encima de esta carpeta.
 
