@@ -31,6 +31,9 @@ class PmVideoSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id_video',
+            # El dueño se toma del token en la vista (serializer.save(cliente=...)),
+            # nunca del cuerpo de la petición: así nadie sube videos a nombre de otro.
+            'cliente',
             'fecha_subida',
             'fecha_expiracion',
             'estado',

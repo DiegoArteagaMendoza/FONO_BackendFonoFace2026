@@ -37,6 +37,7 @@ class PmVideo(models.Model):
     class MotivoEliminacion(models.TextChoices):
         VENCIMIENTO = 'VE', 'Vencimiento de los 30 días'
         ORDEN_MEDICA = 'OM', 'Eliminado por orden del médico'
+        RETIRO_PACIENTE = 'RP', 'Retirado por el propio paciente'
 
     id_video = models.AutoField("Codigo registro video", primary_key=True)
 

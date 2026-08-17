@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission
 
+from PmCliente.models import PmCliente
 from PmMedico.models import Administrador, PM_Profesional
 
 
@@ -27,6 +28,14 @@ class EsProfesional(BasePermission):
 
     def has_permission(self, request, view):
         return isinstance(request.user, PM_Profesional)
+
+
+class EsCliente(BasePermission):
+    """El autenticado debe ser un paciente (no un profesional ni un administrador)."""
+    message = 'Debe iniciar sesión como paciente para realizar esta acción.'
+
+    def has_permission(self, request, view):
+        return isinstance(request.user, PmCliente)
 
 
 def es_dueno_del_recurso(usuario, id_profesional_recurso):
