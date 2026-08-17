@@ -1,0 +1,125 @@
+from datetime import timedelta
+
+from django.db import models
+from django.utils import timezone
+
+from PmCliente.models import PmCliente
+from PmMedico.models import PM_Profesional
+from PmCita.queryset import PmCita_Queryset
+
+# ==========================================================================
+# REGLAS DEL NEGOCIO (centralizadas para no repetirlas en el código)
+# ==========================================================================
+
+# Duración de la cita si el cliente no indica otra al reservar
+DURACION_MINUTOS_DEFECTO = 45
+
+# Rango aceptado para la duración, tanto al reservar como al reprogramar
+DURACION_MINUTOS_MINIMA = 15
+DURACION_MINUTOS_MAXIMA = 120
+
+# No se puede reservar, cancelar ni reprogramar una cita a menos de esta
+# cantidad de horas de anticipación respecto de la hora agendada (evita
+# cambios de último minuto que dejan al otro lado sin aviso razonable).
+HORAS_MINIMAS_ANTICIPACION = 2
+
+# Tope de reprogramaciones por cita: agotado el cupo, hay que cancelar y
+# reservar una nueva (evita que una misma cita se arrastre indefinidamente).
+REPROGRAMACIONES_MAXIMAS = 3
+
+
+class PmCita(models.Model):
+    """
+    Cita médica telemática reservada por un PmCliente con un PM_Profesional
+    (fonoaudiólogo ya acreditado).
+
+    El cliente puede cancelarla (no la realizará) o posponerla a una nueva
+    fecha/hora; el profesional puede hacer lo mismo desde su lado. Mientras
+    sigue RESERVADA, el cliente puede adjuntar un video de síntomas (ver
+    PmVideo.models.PmVideo.cita) que el profesional revisa antes o durante
+    la atención.
+    """
+
+    class Estado(models.TextChoices):
+        RESERVADA = 'RE', 'Reservada'
+        CANCELADA_CLIENTE = 'CC', 'Cancelada por el cliente'
+        CANCELADA_MEDICO = 'CM', 'Cancelada por el profesional'
+        REALIZADA = 'RZ', 'Realizada'
+
+    class Origen(models.TextChoices):
+        CLIENTE = 'CLIENTE', 'Cliente'
+        PROFESIONAL = 'PROFESIONAL', 'Profesional'
+
+    id_cita = models.AutoField('Código cita', primary_key=True)
+
+    cliente = models.ForeignKey(
+        PmCliente,
+        on_delete=models.CASCADE,
+        related_name='citas',
+        verbose_name='Cliente que reserva',
+    )
+    profesional = models.ForeignKey(
+        PM_Profesional,
+        on_delete=models.CASCADE,
+        related_name='citas',
+        verbose_name='Profesional que atiende',
+    )
+
+    fecha_hora = models.DateTimeField(verbose_name='Fecha y hora agendada')
+    duracion_minutos = models.PositiveIntegerField(default=DURACION_MINUTOS_DEFECTO)
+    motivo_consulta = models.TextField(blank=True, null=True, verbose_name='Motivo de la consulta')
+
+    estado = models.CharField(max_length=2, choices=Estado.choices, default=Estado.RESERVADA)
+    permite_carga_video = models.BooleanField(default=True, verbose_name='Permite adjuntar video de síntomas')
+
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name='Fecha de creación')
+    fecha_actualizacion = models.DateTimeField(auto_now=True, verbose_name='Última actualización')
+
+    # --- Cancelación ---
+    motivo_cancelacion = models.TextField(blank=True, null=True)
+    fecha_cancelacion = models.DateTimeField(null=True, blank=True)
+    cancelada_por = models.CharField(max_length=12, choices=Origen.choices, null=True, blank=True)
+
+    # --- Reprogramación (se conserva la fecha original y la última reprogramación;
+    #     el conteo en veces_reprogramada guarda cuántas veces ya se movió) ---
+    fecha_hora_original = models.DateTimeField(
+        null=True, blank=True, verbose_name='Fecha y hora original, antes de la primera reprogramación'
+    )
+    veces_reprogramada = models.PositiveIntegerField(default=0)
+    motivo_reprogramacion = models.TextField(blank=True, null=True, verbose_name='Motivo de la última reprogramación')
+    reprogramada_por = models.CharField(max_length=12, choices=Origen.choices, null=True, blank=True)
+    fecha_ultima_reprogramacion = models.DateTimeField(null=True, blank=True)
+
+    # --- Atención ---
+    fecha_marcada_realizada = models.DateTimeField(null=True, blank=True)
+
+    objects = PmCita_Queryset.as_manager()
+
+    class Meta:
+        db_table = 'PmCita'
+        managed = True
+        verbose_name = 'Cita médica'
+        verbose_name_plural = 'Citas médicas'
+        ordering = ['-fecha_hora']
+
+    def __str__(self):
+        return f'Cita #{self.id_cita} - {self.cliente} con {self.profesional} ({self.get_estado_display()})'
+
+    @property
+    def esta_activa(self):
+        """True si la cita sigue reservada (no fue cancelada ni ya se realizó)."""
+        return self.estado == self.Estado.RESERVADA
+
+    @property
+    def ya_paso(self):
+        """True si la fecha/hora agendada ya quedó en el pasado."""
+        return self.fecha_hora < timezone.now()
+
+    @property
+    def hora_limite_cambio(self):
+        """Desde esta hora en adelante ya no se admite cancelar ni reprogramar."""
+        return self.fecha_hora - timedelta(hours=HORAS_MINIMAS_ANTICIPACION)
+
+    def permite_cambios(self):
+        """True si aún se puede cancelar o reprogramar (activa y fuera del margen mínimo)."""
+        return self.esta_activa and timezone.now() < self.hora_limite_cambio

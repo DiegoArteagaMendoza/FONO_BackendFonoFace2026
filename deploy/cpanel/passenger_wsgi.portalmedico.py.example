@@ -1,0 +1,23 @@
+"""
+passenger_wsgi.py — punto de entrada que Passenger (cPanel) usa para levantar
+FonoAppPortalMedico.
+
+CÓMO USARLO: igual que passenger_wsgi.fonoapp.py.example, pero para el
+Application root del Portal Médico (ej. /home/tuusuario/portalmedico).
+"""
+
+import os
+import sys
+
+# Ejemplo real: "/home/tuusuario/portalmedico"
+PROJECT_ROOT = "/home/tuusuario/portalmedico"
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# Paquete de configuración real: FonoAppPortalMedico/FonoAppPM/settings.py
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "FonoAppPM.settings")
+
+from django.core.wsgi import get_wsgi_application  # noqa: E402
+
+application = get_wsgi_application()

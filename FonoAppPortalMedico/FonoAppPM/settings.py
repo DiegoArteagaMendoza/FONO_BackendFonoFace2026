@@ -71,6 +71,7 @@ BASE_APPS = [
 DEV_APPS = [
     'PmMedico',
     'PmCliente',
+    'PmCita',
     'PmVideo',
 ]
 

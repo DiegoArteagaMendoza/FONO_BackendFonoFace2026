@@ -18,6 +18,7 @@ class PmVideoSerializer(serializers.ModelSerializer):
         fields = [
             'id_video',
             'cliente',
+            'cita',
             'video',
             'descripcion',
             'duracion_segundos',
@@ -40,6 +41,35 @@ class PmVideoSerializer(serializers.ModelSerializer):
             'fecha_eliminacion',
             'motivo_eliminacion',
         ]
+        extra_kwargs = {
+            'cita': {'required': False, 'allow_null': True},
+        }
+
+    def validate(self, datos):
+        """
+        Si el video se asocia a una cita, esta debe pertenecer al mismo
+        cliente, admitir la carga de video y seguir reservada (no cancelada
+        ni ya realizada).
+        """
+        cita = datos.get('cita')
+
+        # OJO: 'cliente' es de solo lectura (el dueño se toma del token en la
+        # vista), así que NO llega dentro de 'datos'. La vista lo entrega por
+        # contexto; sin esto la comprobación de propiedad de la cita quedaría
+        # siempre en falso y cualquiera podría colgar su video de una cita ajena.
+        cliente = datos.get('cliente') or self.context.get('cliente')
+
+        if cita:
+            if cliente and cita.cliente_id != cliente.pk:
+                raise serializers.ValidationError({'cita': 'La cita no pertenece a este cliente.'})
+            if not cita.permite_carga_video:
+                raise serializers.ValidationError({'cita': 'Esta cita no admite la carga de un video.'})
+            if not cita.esta_activa:
+                raise serializers.ValidationError(
+                    {'cita': 'Solo se puede adjuntar un video a una cita reservada (no cancelada ni realizada).'}
+                )
+
+        return datos
 
     def validate_duracion_segundos(self, value):
         """El video no puede superar los 30 segundos."""

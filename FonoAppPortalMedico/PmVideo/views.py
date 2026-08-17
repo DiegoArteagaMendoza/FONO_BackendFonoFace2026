@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from Security.permissions import EsAdministrador, EsCliente, EsProfesional
+from PmMedico.models import PM_Profesional
+from PmCita.models import PmCita
 from PmVideo.models import PmVideo
 from PmVideo.serializer import PmVideoSerializer
 
@@ -24,7 +26,9 @@ def video_subir(request):
     Recibe el video de síntomas del paciente autenticado (multipart/form-data).
     La fecha de expiración se calcula sola: 30 días desde la subida.
     """
-    serializer = PmVideoSerializer(data=request.data)
+    # El paciente va por contexto para que el serializer pueda comprobar que la
+    # cita indicada (si viene) es realmente suya.
+    serializer = PmVideoSerializer(data=request.data, context={'cliente': request.user})
 
     if serializer.is_valid():
         # El dueño sale del token, ignorando cualquier 'cliente' que venga en el body
@@ -73,12 +77,26 @@ def mi_video_eliminar(request, id_video):
 @permission_classes([EsProfesional | EsAdministrador])
 def videos_listar(request):
     """
-    Lista los videos vigentes. Se puede filtrar por cliente: ?cliente=1
-    Los videos vencidos nunca se entregan, aunque el archivo aún no se haya purgado.
+    Lista los videos vigentes. Se puede filtrar por cliente (?cliente=1) o
+    por cita (?cita=5). Los videos vencidos nunca se entregan, aunque el
+    archivo aún no se haya purgado.
+
+    Cuando se filtra por cita y quien consulta es un profesional (no un
+    administrador), solo se entrega si la cita es suya: evita que un
+    profesional vea el video de una cita ajena.
     """
     id_cliente = request.query_params.get('cliente', None)
+    id_cita = request.query_params.get('cita', None)
 
-    if id_cliente:
+    if id_cita:
+        if isinstance(request.user, PM_Profesional):
+            if not PmCita.objects.filter(pk=id_cita, profesional_id=request.user.pk).exists():
+                return Response(
+                    {'error': 'No tiene permiso para ver los videos de esa cita'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        videos = PmVideo.objects.de_cita(id_cita)
+    elif id_cliente:
         videos = PmVideo.objects.del_cliente(id_cliente)
     else:
         videos = PmVideo.objects.vigentes()

@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Workflow de despliegue automático a V2Networks (cPanel) vía SSH + rsync.
+#
+# CÓMO ACTIVARLO (no hace nada mientras viva en deploy/):
+#   cp deploy/github-actions/deploy.yml .github/workflows/deploy.yml
+#
+# REQUISITOS PREVIOS (ver DOCUMENTACION_DESPLIEGUE.md §5):
+#   1. Acceso SSH habilitado en el hosting (pedir a soporte V2Networks si no
+#      aparece "SSH Access" en cPanel).
+#   2. Un par de llaves SSH dedicado para este pipeline:
+#        ssh-keygen -t ed25519 -C "github-actions-deploy" -f deploy_key -N ""
+#      La pública (deploy_key.pub) se agrega en cPanel → "SSH Access" →
+#      "Manage SSH Keys" → Import Key → Authorize. La privada (deploy_key)
+#      se guarda como el secret SSH_PRIVATE_KEY (nunca se commitea).
+#   3. Ya se hizo el primer despliegue MANUAL de cada proyecto en
+#      "Setup Python App" (ver DOCUMENTACION_DESPLIEGUE.md §4) — este
+#      workflow actualiza código, no reemplaza la creación inicial de la
+#      app ni el virtualenv.
+#
+# SECRETS a definir en GitHub → Settings → Secrets and variables → Actions:
+#   SSH_HOST                    Host o IP del servidor (ej. servidor.v2networks.cl)
+#   SSH_PORT                    Puerto SSH (cPanel suele usar 21098, no 22 — confirmar con soporte)
+#   SSH_USERNAME                Usuario cPanel
+#   SSH_PRIVATE_KEY             Contenido completo de deploy_key (privada)
+#   FONOAPP_REMOTE_PATH         Ruta absoluta del Application root de FonoApp
+#                                (ej. /home/usuario/fonoapp)
+#   FONOAPP_VENV_ACTIVATE       Ruta absoluta al activate del virtualenv que
+#                                cPanel crea para esa app (ej.
+#                                /home/usuario/virtualenv/fonoapp/3.12/bin/activate)
+#   PORTALMEDICO_REMOTE_PATH    Ruta absoluta del Application root de FonoAppPortalMedico
+#   PORTALMEDICO_VENV_ACTIVATE  Ruta absoluta al activate de ese virtualenv
+#
+# VARIABLES (no secretas) opcionales en Settings → Secrets and variables →
+# Actions → Variables, para no hardcodear la rama de despliegue:
+#   DEPLOY_BRANCH  (default usado abajo: "production")
+# ─────────────────────────────────────────────────────────────────────────
+name: Deploy a V2Networks (cPanel)
+
+on:
+  push:
+    branches:
+      - production   # usar una rama dedicada a producción; no desplegar directo desde develop/main
+  workflow_dispatch:  # permite lanzarlo a mano desde la pestaña Actions de GitHub
+
+concurrency:
+  group: deploy-produccion
+  cancel-in-progress: false   # nunca cancelar un deploy a mitad de camino
+
+jobs:
+  test:
+    name: Tests antes de desplegar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Tests FonoApp
+        working-directory: FonoApp
+        run: python manage.py test
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+
+      - name: Tests FonoAppPortalMedico
+        working-directory: FonoAppPortalMedico
+        run: python manage.py test
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+
+  deploy-fonoapp:
+    name: Deploy FonoApp
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sincronizar código (rsync sobre SSH)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "FonoApp/"
+          TARGET: ${{ secrets.FONOAPP_REMOTE_PATH }}
+          ARGS: "-avzr --delete"
+          EXCLUDE: "/.env, /media/, /passenger_wsgi.py, /tmp/, **/__pycache__, *.pyc"
+
+      - name: Sincronizar requirements.txt (vive un nivel más arriba en el monorepo)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "requirements.txt"
+          TARGET: ${{ secrets.FONOAPP_REMOTE_PATH }}
+          ARGS: "-avz"
+
+      - name: Instalar dependencias, migrar y reiniciar (Passenger)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            source ${{ secrets.FONOAPP_VENV_ACTIVATE }}
+            cd ${{ secrets.FONOAPP_REMOTE_PATH }}
+            pip install -r requirements.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            mkdir -p tmp
+            touch tmp/restart.txt
+
+  deploy-portalmedico:
+    name: Deploy FonoAppPortalMedico
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sincronizar código (rsync sobre SSH)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "FonoAppPortalMedico/"
+          TARGET: ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+          ARGS: "-avzr --delete"
+          EXCLUDE: "/.env, /media/, /passenger_wsgi.py, /tmp/, **/__pycache__, *.pyc"
+
+      - name: Sincronizar requirements.txt (vive un nivel más arriba en el monorepo)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "requirements.txt"
+          TARGET: ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+          ARGS: "-avz"
+
+      - name: Instalar dependencias, migrar y reiniciar (Passenger)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            source ${{ secrets.PORTALMEDICO_VENV_ACTIVATE }}
+            cd ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+            pip install -r requirements.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            mkdir -p tmp
+            touch tmp/restart.txt
+
+# NOTAS:
+# - SECRET_KEY, DEBUG, ALLOWED_HOSTS, DATABASE_URL, etc. NO se manejan acá:
+#   se configuran una sola vez como variables de entorno en "Setup Python App"
+#   dentro de cPanel (persisten entre despliegues, no dependen de este workflow).
+# - "touch tmp/restart.txt" es la forma estándar en que Passenger detecta que
+#   debe reiniciar la aplicación (compara el mtime del archivo).
+# - Si el plan de hosting NO tiene acceso SSH, usar deploy-sftp.yml en su lugar.

@@ -1,0 +1,19 @@
+# Línea de Cron Job para purgar automáticamente los videos de PmVideo cuyos
+# 30 días de vigencia ya vencieron (PmVideo/management/commands/limpiar_videos_vencidos.py).
+#
+# CÓMO USARLO en cPanel: Software → "Cron Jobs" → Add New Cron Job.
+#   - Common Settings: "Once Per Day" (o el horario que prefieras).
+#   - Command: pegar la línea de abajo, reemplazando las rutas por las reales
+#     de tu Application root y de tu virtualenv (mismas rutas que usaste al
+#     crear la app en "Setup Python App").
+#
+# Ejemplo (ajustar "usuario" y "3.12"):
+/home/usuario/virtualenv/portalmedico/3.12/bin/python /home/usuario/portalmedico/manage.py limpiar_videos_vencidos >> /home/usuario/portalmedico/logs/limpiar_videos.log 2>&1
+
+# Notas:
+# - Usar la ruta ABSOLUTA al intérprete Python del virtualenv (no "python" a
+#   secas): cPanel no activa el virtualenv en el entorno de cron por defecto.
+# - Crear antes la carpeta de logs si no existe: mkdir -p /home/usuario/portalmedico/logs
+# - Para probar sin borrar nada primero, correr una vez a mano (por Terminal
+#   de cPanel, si está disponible) con --simular:
+#     /home/usuario/virtualenv/portalmedico/3.12/bin/python manage.py limpiar_videos_vencidos --simular

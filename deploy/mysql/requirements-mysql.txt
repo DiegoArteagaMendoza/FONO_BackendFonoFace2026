@@ -1,0 +1,20 @@
+# Dependencias adicionales para conectar a MySQL/MariaDB (cPanel de V2Networks).
+#
+# CÓMO USARLO: agregar estas líneas a requirements.txt (raíz del repo) cuando
+# se active la migración a MySQL. NO se elimina psycopg2-binary: se deja para
+# poder seguir desarrollando localmente contra PostgreSQL (ver
+# db_engine_snippet.py, que elige el motor según DB_ENGINE) — solo en el
+# servidor de producción hará falta el driver de MySQL.
+#
+# Se recomienda PyMySQL (driver 100% Python) en vez de mysqlclient: mysqlclient
+# necesita compilar una extensión en C contra libmysqlclient-dev, y en hosting
+# compartido (cPanel "Setup Python App") normalmente NO hay compilador ni
+# headers de MySQL disponibles para el usuario, por lo que `pip install
+# mysqlclient` suele fallar ahí. PyMySQL evita ese problema por completo.
+PyMySQL==1.2.1
+
+# Si en algún entorno (ej. build local en Linux con las herramientas de compilación
+# instaladas) prefieres el driver oficial en C por rendimiento, puedes usar
+# mysqlclient en su lugar — pero verifica primero que compile en el hosting real
+# antes de depender de él en producción:
+# mysqlclient==2.2.7

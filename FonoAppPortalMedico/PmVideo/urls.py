@@ -10,11 +10,14 @@ urlpatterns = [
     #                    (multipart/form-data), NO un JSON.
     # EN EL FRONTEND (Angular):
     #   const formData = new FormData();
+    #   formData.append('cita', idCita); // opcional: vincula el video a una cita
     #   formData.append('video', archivoVideo);
     #   formData.append('duracion_segundos', Math.round(video.duration));
     #   formData.append('descripcion', 'Ronquera al hablar fuerte'); // opcional
     #   -> El dueño NO se envía: se toma del token del paciente.
     #
+    # Si se envía 'cita', debe pertenecer al mismo cliente, admitir carga de
+    # video (permite_carga_video) y seguir reservada (no cancelada/realizada).
     # REGLAS: máximo 30 segundos, hasta 50 MB, formatos mp4 / webm / mov.
     # RESPUESTA ESPERADA: El objeto JSON del video creado (Status 201), que
     # incluye "fecha_expiracion" y "dias_restantes".
@@ -39,6 +42,7 @@ urlpatterns = [
     # MÉTODO: GET
     # URL: /api/pm/videos/listar/            (todos los vigentes)
     #      /api/pm/videos/listar/?cliente=1  (los de un cliente puntual)
+    #      /api/pm/videos/listar/?cita=5     (los de una cita puntual)
     # HEADERS: Requiere autenticación
     # RESPUESTA ESPERADA: Arreglo JSON con los videos vigentes.
     # -------------------------------------------------------------------------
