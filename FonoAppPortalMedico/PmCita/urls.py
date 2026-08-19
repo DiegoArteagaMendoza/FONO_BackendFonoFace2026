@@ -4,28 +4,35 @@ from PmCita import views
 urlpatterns = [
     # =====================================================================
     # RESERVA Y GESTIÓN DEL LADO DEL CLIENTE
-    # (sin sesión propia todavía; ver TODO en views.py)
+    # Todas requieren Bearer <token paciente> (PmCliente ya tiene sesión
+    # propia). El dueño de la cita se toma del token, así que el id_cliente
+    # ya NO viaja en el cuerpo de la petición.
     # =====================================================================
 
-    # MÉTODO: POST | URL: /api/pm/citas/reservar/ | Acceso: público
-    # BODY: {"id_cliente","id_profesional","fecha_hora" (ISO 8601, con
-    #        anticipación mínima), "motivo_consulta" (opcional),
+    # MÉTODO: POST | URL: /api/pm/citas/reservar/
+    # Requiere: Bearer <token paciente>
+    # BODY: {"id_profesional","fecha_hora" (ISO 8601, con anticipación
+    #        mínima), "motivo_consulta" (opcional),
     #        "duracion_minutos" (opcional, por defecto 45)}
     # RESPUESTA: el objeto JSON de la cita creada (Status 201).
     path('reservar/', views.cita_reservar, name='cita-reservar'),
 
     # MÉTODO: GET | URL: /api/pm/citas/cliente/<id_cliente>/listar/
     #                     /api/pm/citas/cliente/<id_cliente>/listar/?proximas=true
-    # Acceso: público (ver TODO). Sin el filtro, entrega todo el historial.
+    # Requiere: Bearer <token paciente>. El id_cliente de la URL debe ser el
+    # del propio token; si no, responde 403. Sin el filtro, entrega todo el
+    # historial (incluye canceladas y realizadas).
     path('cliente/<int:id_cliente>/listar/', views.citas_cliente_listar, name='citas-cliente-listar'),
 
-    # MÉTODO: PATCH | URL: /api/pm/citas/<id_cita>/cliente/cancelar/ | Acceso: público (ver TODO)
-    # BODY: {"id_cliente", "motivo" (opcional)}
+    # MÉTODO: PATCH | URL: /api/pm/citas/<id_cita>/cliente/cancelar/
+    # Requiere: Bearer <token paciente (dueño de la cita)>
+    # BODY: {"motivo" (opcional)}
     # RESPUESTA: la cita con estado "CC" (Cancelada por el cliente).
     path('<int:id_cita>/cliente/cancelar/', views.cita_cliente_cancelar, name='cita-cliente-cancelar'),
 
-    # MÉTODO: PATCH | URL: /api/pm/citas/<id_cita>/cliente/posponer/ | Acceso: público (ver TODO)
-    # BODY: {"id_cliente", "fecha_hora" (nueva, ISO 8601), "motivo" (opcional)}
+    # MÉTODO: PATCH | URL: /api/pm/citas/<id_cita>/cliente/posponer/
+    # Requiere: Bearer <token paciente (dueño de la cita)>
+    # BODY: {"fecha_hora" (nueva, ISO 8601), "motivo" (opcional)}
     # RESPUESTA: la cita con la nueva fecha_hora.
     path('<int:id_cita>/cliente/posponer/', views.cita_cliente_posponer, name='cita-cliente-posponer'),
 
@@ -62,9 +69,8 @@ urlpatterns = [
     # =====================================================================
 
     # MÉTODO: GET | URL: /api/pm/citas/<id_cita>/
-    #                     /api/pm/citas/<id_cita>/?cliente=<id_cliente>  (acceso del propio cliente)
-    # Requiere: Bearer <token profesional dueño o administrador>, EXCEPTO
-    # cuando se accede con ?cliente=<id> (ver TODO en views.py).
+    # Requiere: Bearer <token del paciente dueño, del profesional que atiende
+    # o de un administrador>. Cualquier otra identidad recibe 403.
     path('<int:id_cita>/', views.cita_detalle, name='cita-detalle'),
 
     # MÉTODO: GET | URL: /api/pm/citas/listar/?cliente=1&profesional=3&estado=RE
