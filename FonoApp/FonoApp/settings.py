@@ -62,6 +62,12 @@ INSTALLED_APPS = DEV_APPS + BASE_APPS + FRAMEWORKS
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Sirve los archivos de STATIC_ROOT directamente desde el proceso Django. Hace
+    # falta en cPanel/Passenger porque ahí no hay un Nginx/Apache al frente que
+    # sirva estáticos aparte (a diferencia de 'runserver' en desarrollo, donde
+    # django.contrib.staticfiles ya los sirve solo con DEBUG=True). Va justo
+    # después de SecurityMiddleware, como pide la documentación de whitenoise.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -173,6 +179,29 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+
+# Carpeta donde 'collectstatic' junta los estáticos de todas las apps (propios +
+# los de django.contrib.admin y rest_framework) para servirlos en producción.
+# Sin esto, 'python manage.py collectstatic' falla con
+# "ImproperlyConfigured: ... without having set the STATIC_ROOT setting".
+# En desarrollo (runserver) no se usa: django.contrib.staticfiles los sirve
+# directo desde cada app mientras DEBUG=True, sin necesidad de recolectarlos.
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Compresión + serving de esos estáticos vía WhiteNoiseMiddleware (ver MIDDLEWARE).
+# Se usa la variante "Compressed" (no "CompressedManifest") a propósito: la
+# variante con manifiesto exige que cada estático referenciado en templates/CSS
+# exista sin errores en el primer collectstatic, y falla duro si no — con
+# "Compressed" a secas el despliegue no se cae por un estático de una librería
+# de terceros mal referenciado.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 
 REST_FRAMEWORK = {
