@@ -58,6 +58,13 @@ if os.environ.get('DATABASE_URL'):
         DATABASES['default']['OPTIONS'].setdefault(
             'init_command', "SET sql_mode='STRICT_TRANS_TABLES'"
         )
+        # dj_database_url agrega OPTIONS['sslmode']='require' cuando ssl_require=True
+        # (por defecto en producción, ver env_bool de arriba), pero 'sslmode' es un
+        # nombre de psycopg2/Postgres: ni PyMySQL ni mysqlclient lo aceptan como
+        # argumento de conexión y Django revienta con
+        # "Connection.__init__() got an unexpected keyword argument 'sslmode'".
+        # cPanel expone MySQL en localhost sin TLS, así que de todas formas no aplica.
+        DATABASES['default']['OPTIONS'].pop('sslmode', None)
 else:
     DATABASES = {
         'default': {
