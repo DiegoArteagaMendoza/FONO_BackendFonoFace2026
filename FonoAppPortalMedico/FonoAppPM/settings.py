@@ -121,6 +121,17 @@ WSGI_APPLICATION = 'FonoAppPM.wsgi.application'
 # Misma base de datos física que FonoApp (ver docker-compose.yml en la raíz del repo):
 # aquí viven, entre otras, la tabla FonoApp_Administracion que PmMedico consulta
 # (de solo lectura, vía un modelo no gestionado) para saber quién es administrador.
+# Motor de base de datos: 'postgresql' (default, igual que siempre) o 'mysql'
+# (usado en el despliegue en cPanel, ver deploy/mysql/). Definir DB_ENGINE=mysql
+# solo afecta al camino DB_* de abajo; con DATABASE_URL el motor se detecta
+# solo por el esquema de la URL ("postgres://" o "mysql://").
+DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql').strip().lower()
+
+_ENGINES = {
+    'postgresql': 'django.db.backends.postgresql',
+    'mysql': 'django.db.backends.mysql',
+}
+
 if os.environ.get('DATABASE_URL'):
     import dj_database_url
 
@@ -131,17 +142,30 @@ if os.environ.get('DATABASE_URL'):
             ssl_require=env_bool('DATABASE_SSL_REQUIRE', not DEBUG),
         )
     }
+    if DATABASES['default']['ENGINE'] == 'django.db.backends.mysql':
+        DATABASES['default'].setdefault('OPTIONS', {})
+        DATABASES['default']['OPTIONS'].setdefault('charset', 'utf8mb4')
+        DATABASES['default']['OPTIONS'].setdefault(
+            'init_command', "SET sql_mode='STRICT_TRANS_TABLES'"
+        )
 else:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.postgresql',
+            'ENGINE': _ENGINES.get(DB_ENGINE, _ENGINES['postgresql']),
             'NAME': os.environ.get('DB_NAME', 'fonoDevDB'),
             'USER': os.environ.get('DB_USER', 'admin'),
             'PASSWORD': os.environ.get('DB_PASSWORD', 'secret'),
             'HOST': os.environ.get('DB_HOST', 'localhost'),
-            'PORT': os.environ.get('DB_PORT', '5432'),
+            'PORT': os.environ.get('DB_PORT', '5432' if DB_ENGINE == 'postgresql' else '3306'),
         }
     }
+    if DB_ENGINE == 'mysql':
+        # utf8mb4 (no utf8 a secas) para soportar el set de caracteres completo
+        # de Unicode (tildes, ñ, emoji en campos de texto libre).
+        DATABASES['default']['OPTIONS'] = {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        }
 
 
 # Password validation

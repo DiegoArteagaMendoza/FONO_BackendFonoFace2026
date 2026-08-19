@@ -6,8 +6,10 @@ venv/
 __pycache__/
 *.py[cod]
 
-# Variables de entorno
+# Variables de entorno (los .env.*.example SÍ se versionan, son plantillas sin secretos reales)
 .env
+.env.develop
+.env.production
 
 # VSCode
 .vscode/

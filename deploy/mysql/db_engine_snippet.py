@@ -53,6 +53,11 @@ if os.environ.get('DATABASE_URL'):
     if DATABASES['default']['ENGINE'] == 'django.db.backends.mysql':
         DATABASES['default'].setdefault('OPTIONS', {})
         DATABASES['default']['OPTIONS'].setdefault('charset', 'utf8mb4')
+        # Sin esto, Django emite el warning mysql.W002 y MariaDB silencia
+        # truncamientos/errores de datos en vez de rechazarlos.
+        DATABASES['default']['OPTIONS'].setdefault(
+            'init_command', "SET sql_mode='STRICT_TRANS_TABLES'"
+        )
 else:
     DATABASES = {
         'default': {
@@ -71,4 +76,7 @@ else:
         # cPanel) ya usan InnoDB con innodb_large_prefix por defecto, así que
         # no hace falta tocar ROW_FORMAT para los campos únicos/indexados de
         # este proyecto (RUT, email — todos cortos).
-        DATABASES['default']['OPTIONS'] = {'charset': 'utf8mb4'}
+        DATABASES['default']['OPTIONS'] = {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        }
