@@ -1,11 +1,11 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
-from Security.permissions import EsAdministrador, EsProfesional
+from Security.permissions import EsAdministrador, EsCliente, EsProfesional
 from PmMedico.models import Administrador, PM_Profesional
+from PmCliente.models import PmCliente
 from PmCita.models import PmCita
 from PmCita.serializer import (
     PmCitaSerializer,
@@ -23,21 +23,22 @@ def _respuesta_error(error, mensaje_404='no encontrada'):
 
 
 # ==========================================================================
-# RESERVA Y GESTIÓN DEL LADO DEL CLIENTE
+# RESERVA Y GESTIÓN DEL LADO DEL CLIENTE (paciente autenticado)
 # --------------------------------------------------------------------------
-# TODO: igual que en PmCliente/PmVideo, cuando el Portal Médico tenga sesión
-# propia para clientes, todo este bloque debe exigir autenticación y tomar
-# al cliente del token en vez de recibirlo en el cuerpo de la petición, para
-# que nadie pueda reservar, cancelar ni posponer citas a nombre de otro.
+# Igual que en PmCliente/PmVideo, el paciente se identifica con su propio
+# token (Security.authentication reconoce el claim id_cliente) y el dueño de
+# la cita se toma SIEMPRE de request.user, nunca del cuerpo de la petición:
+# así nadie puede reservar, cancelar ni posponer citas a nombre de otro con
+# solo conocer su id_cliente.
 # ==========================================================================
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([EsCliente])
 def cita_reservar(request):
     """
-    Reserva una cita. Valida que el profesional esté acreditado, que la hora
-    tenga la anticipación mínima y que no se cruce con otra cita del mismo
-    profesional.
+    El paciente autenticado reserva una cita. Valida que el profesional esté
+    acreditado, que la hora tenga la anticipación mínima y que no se cruce con
+    otra cita del mismo profesional.
     """
     entrada = PmCitaReservarSerializer(data=request.data)
     entrada.is_valid(raise_exception=True)
@@ -45,7 +46,7 @@ def cita_reservar(request):
 
     try:
         cita = PmCita.objects.reservar(
-            cliente=datos['id_cliente'],
+            cliente=request.user,
             profesional=datos['id_profesional'],
             fecha_hora=datos['fecha_hora'],
             motivo_consulta=datos.get('motivo_consulta', ''),
@@ -59,30 +60,41 @@ def cita_reservar(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([EsCliente])
 def citas_cliente_listar(request, id_cliente):
     """
-    Historial de citas de un cliente.
+    Historial de citas del paciente autenticado.
     ?proximas=true filtra solo las activas y futuras; sin ese parámetro,
     entrega todo el historial (incluye canceladas y realizadas).
+
+    El id_cliente sigue en la URL por compatibilidad, pero solo se acepta si
+    coincide con el dueño del token: nadie consulta la agenda de otro paciente.
     """
+    if int(id_cliente) != request.user.pk:
+        return Response(
+            {'error': 'No tiene permiso para ver las citas de otro paciente'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     if request.query_params.get('proximas', '').lower() == 'true':
-        citas = PmCita.objects.proximas_de_cliente(id_cliente)
+        citas = PmCita.objects.proximas_de_cliente(request.user.pk)
     else:
-        citas = PmCita.objects.de_cliente(id_cliente)
+        citas = PmCita.objects.de_cliente(request.user.pk)
 
     return Response(PmCitaSerializer(citas, many=True).data)
 
 
 @api_view(['PATCH'])
-@permission_classes([AllowAny])
+@permission_classes([EsCliente])
 def cita_cliente_cancelar(request, id_cita):
-    """El cliente cancela su propia cita (no la realizará)."""
+    """El paciente cancela su propia cita (no la realizará)."""
     entrada = PmCitaClienteCancelarSerializer(data=request.data)
     entrada.is_valid(raise_exception=True)
 
+    # cancelar_por_cliente filtra por (pk, cliente_id), así que una cita ajena
+    # devuelve 'no encontrada' en vez de dejarse cancelar.
     cita, error = PmCita.objects.cancelar_por_cliente(
-        id_cita, entrada.validated_data['id_cliente'].pk, entrada.validated_data.get('motivo')
+        id_cita, request.user.pk, entrada.validated_data.get('motivo')
     )
     if error:
         return _respuesta_error(error)
@@ -91,15 +103,15 @@ def cita_cliente_cancelar(request, id_cita):
 
 
 @api_view(['PATCH'])
-@permission_classes([AllowAny])
+@permission_classes([EsCliente])
 def cita_cliente_posponer(request, id_cita):
-    """El cliente reprograma su propia cita a una nueva fecha/hora."""
+    """El paciente reprograma su propia cita a una nueva fecha/hora."""
     entrada = PmCitaClientePosponerSerializer(data=request.data)
     entrada.is_valid(raise_exception=True)
 
     cita, error = PmCita.objects.posponer_por_cliente(
         id_cita,
-        entrada.validated_data['id_cliente'].pk,
+        request.user.pk,
         entrada.validated_data['fecha_hora'],
         entrada.validated_data.get('motivo'),
     )
@@ -177,14 +189,17 @@ def cita_profesional_marcar_realizada(request, id_cita):
 # ==========================================================================
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([EsCliente | EsProfesional | EsAdministrador])
 def cita_detalle(request, id_cita):
     """
     Retorna el detalle de una cita puntual. Acceso permitido a:
-      - el profesional dueño de la cita o un administrador (autenticados), o
-      - el cliente dueño, identificado con ?cliente=<id_cliente> (mismo
-        modelo de confianza que el resto de los endpoints de cliente; ver
-        el TODO al inicio de este archivo).
+      - el paciente dueño de la cita,
+      - el profesional que la atiende, o
+      - un administrador.
+
+    Las tres identidades salen del token (ver Security.authentication); antes
+    el cliente se identificaba con ?cliente=<id_cliente>, lo que dejaba el
+    detalle de cualquier cita al alcance de quien adivinara el id.
     """
     try:
         cita = PmCita.objects.get(pk=id_cita)
@@ -192,13 +207,11 @@ def cita_detalle(request, id_cita):
         return Response({'error': 'Cita no encontrada'}, status=status.HTTP_404_NOT_FOUND)
 
     usuario = request.user
+    es_cliente_dueno = isinstance(usuario, PmCliente) and usuario.pk == cita.cliente_id
     es_profesional_dueno = isinstance(usuario, PM_Profesional) and usuario.pk == cita.profesional_id
     es_administrador = isinstance(usuario, Administrador) and usuario.is_staff
 
-    id_cliente_param = request.query_params.get('cliente')
-    es_cliente_dueno = id_cliente_param is not None and str(cita.cliente_id) == str(id_cliente_param)
-
-    if not (es_profesional_dueno or es_administrador or es_cliente_dueno):
+    if not (es_cliente_dueno or es_profesional_dueno or es_administrador):
         return Response({'error': 'No tiene permiso para ver esta cita'}, status=status.HTTP_403_FORBIDDEN)
 
     return Response(PmCitaSerializer(cita).data)

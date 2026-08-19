@@ -13,11 +13,40 @@ urlpatterns = [
     #   "rut_cliente": "12345678-9",
     #   "fecha_nacimiento_cliente": "1998-05-20",   <-- formato AAAA-MM-DD
     #   "email_cliente": "sebastian@correo.cl",
-    #   "telefono_cliente": "+56912345678"
+    #   "telefono_cliente": "+56912345678",
+    #   "password": "minimo 8 caracteres"
     # }
     # RESPUESTA ESPERADA: El objeto JSON del cliente creado (Status 201).
     # -------------------------------------------------------------------------
     path('registrar/', views.cliente_registrar, name='cliente-registrar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST | URL: /api/pm/clientes/login/ | Acceso: público
+    # BODY: {"identificador": "<correo o rut>", "password": "..."}
+    # RESPUESTA: {"refresh": "...", "access": "...", "cliente": {...}}
+    # -------------------------------------------------------------------------
+    path('login/', views.cliente_login, name='cliente-login'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/clientes/perfil/
+    # HEADERS: { "Authorization": "Bearer <token del paciente>" }
+    # RESPUESTA: Los datos del paciente autenticado.
+    # -------------------------------------------------------------------------
+    path('perfil/', views.cliente_perfil, name='cliente-perfil'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: PATCH | URL: /api/pm/clientes/perfil/editar/
+    # HEADERS: { "Authorization": "Bearer <token del paciente>" }
+    # BODY (parcial): nombres/apellidos/fecha_nacimiento/email/telefono
+    # -------------------------------------------------------------------------
+    path('perfil/editar/', views.cliente_perfil_editar, name='cliente-perfil-editar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: PUT | URL: /api/pm/clientes/perfil/password/
+    # HEADERS: { "Authorization": "Bearer <token del paciente>" }
+    # BODY: {"password_actual": "...", "password_nueva": "..."}
+    # -------------------------------------------------------------------------
+    path('perfil/password/', views.cliente_cambiar_password, name='cliente-cambiar-password'),
 
     # -------------------------------------------------------------------------
     # MÉTODO: GET

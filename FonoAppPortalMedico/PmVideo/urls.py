@@ -10,11 +10,11 @@ urlpatterns = [
     #                    (multipart/form-data), NO un JSON.
     # EN EL FRONTEND (Angular):
     #   const formData = new FormData();
-    #   formData.append('cliente', idCliente);
     #   formData.append('cita', idCita); // opcional: vincula el video a una cita
     #   formData.append('video', archivoVideo);
     #   formData.append('duracion_segundos', Math.round(video.duration));
     #   formData.append('descripcion', 'Ronquera al hablar fuerte'); // opcional
+    #   -> El dueño NO se envía: se toma del token del paciente.
     #
     # Si se envía 'cita', debe pertenecer al mismo cliente, admitir carga de
     # video (permite_carga_video) y seguir reservada (no cancelada/realizada).
@@ -23,6 +23,20 @@ urlpatterns = [
     # incluye "fecha_expiracion" y "dias_restantes".
     # -------------------------------------------------------------------------
     path('subir/', views.video_subir, name='video-subir'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/videos/mis-videos/
+    # HEADERS: { "Authorization": "Bearer <token del paciente>" }
+    # RESPUESTA: Los videos vigentes del paciente autenticado.
+    # -------------------------------------------------------------------------
+    path('mis-videos/', views.mis_videos, name='mis-videos'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: DELETE | URL: /api/pm/videos/mis-videos/1/eliminar/
+    # HEADERS: { "Authorization": "Bearer <token del paciente>" }
+    # El paciente retira un video propio antes de que venza.
+    # -------------------------------------------------------------------------
+    path('mis-videos/<int:id_video>/eliminar/', views.mi_video_eliminar, name='mi-video-eliminar'),
 
     # -------------------------------------------------------------------------
     # MÉTODO: GET

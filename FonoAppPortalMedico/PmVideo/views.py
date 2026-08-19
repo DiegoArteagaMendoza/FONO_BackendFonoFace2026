@@ -1,10 +1,9 @@
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
-from Security.permissions import EsAdministrador, EsProfesional
+from Security.permissions import EsAdministrador, EsCliente, EsProfesional
 from PmMedico.models import PM_Profesional
 from PmCita.models import PmCita
 from PmVideo.models import PmVideo
@@ -12,28 +11,58 @@ from PmVideo.serializer import PmVideoSerializer
 
 
 # ==========================================================================
-# SUBIDA DEL VIDEO (lo hace el cliente)
+# SUBIDA Y CONSULTA DEL PROPIO VIDEO (lo hace el paciente)
 # --------------------------------------------------------------------------
-# TODO: cuando el Portal Médico tenga su autenticación resuelta, este endpoint
-# debe exigir sesión y tomar el cliente del token en vez de recibirlo en el
-# cuerpo de la petición, para que nadie pueda subir videos a nombre de otro.
+# El paciente debe estar autenticado y el dueño del video se toma del token,
+# nunca del cuerpo de la petición: así nadie puede subir material clínico a
+# nombre de otra persona ni ver videos ajenos.
 # ==========================================================================
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([EsCliente])
 @parser_classes([MultiPartParser, FormParser])
 def video_subir(request):
     """
-    Recibe el video de síntomas del cliente (multipart/form-data).
+    Recibe el video de síntomas del paciente autenticado (multipart/form-data).
     La fecha de expiración se calcula sola: 30 días desde la subida.
     """
-    serializer = PmVideoSerializer(data=request.data)
+    # El paciente va por contexto para que el serializer pueda comprobar que la
+    # cita indicada (si viene) es realmente suya.
+    serializer = PmVideoSerializer(data=request.data, context={'cliente': request.user})
 
     if serializer.is_valid():
-        serializer.save()
+        # El dueño sale del token, ignorando cualquier 'cliente' que venga en el body
+        serializer.save(cliente=request.user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([EsCliente])
+def mis_videos(request):
+    """Videos vigentes del paciente autenticado."""
+    videos = PmVideo.objects.del_cliente(request.user.pk)
+    return Response(PmVideoSerializer(videos, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([EsCliente])
+def mi_video_eliminar(request, id_video):
+    """
+    El paciente retira un video propio antes de que venza.
+    Solo puede borrar los suyos: se comprueba contra el id del token.
+    """
+    video = PmVideo.objects.vigentes().filter(id_video=id_video, cliente_id=request.user.pk).first()
+
+    if not video:
+        return Response(
+            {'error': 'El video no existe, no es tuyo o ya fue eliminado'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    PmVideo.objects.eliminar(id_video, PmVideo.MotivoEliminacion.RETIRO_PACIENTE)
+    return Response({'mensaje': 'Video eliminado correctamente'}, status=status.HTTP_200_OK)
 
 
 # ==========================================================================

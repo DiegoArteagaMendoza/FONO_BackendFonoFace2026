@@ -277,18 +277,20 @@ Propiedades: `esta_activa` (estado == `RE`), `ya_paso`, `hora_limite_cambio` (`f
 
 | Método | Endpoint | Acceso | Descripción |
 |---|---|---|---|
-| POST | `reservar/` | Público* | Body: `id_cliente, id_profesional, fecha_hora, motivo_consulta?, duracion_minutos?` |
-| GET | `cliente/<id_cliente>/listar/?proximas=true` | Público* | Historial o solo próximas activas |
-| PATCH | `<id_cita>/cliente/cancelar/` | Público* | Body: `id_cliente, motivo?` |
-| PATCH | `<id_cita>/cliente/posponer/` | Público* | Body: `id_cliente, fecha_hora, motivo?` |
+| POST | `reservar/` | Paciente | Body: `id_profesional, fecha_hora, motivo_consulta?, duracion_minutos?` |
+| GET | `cliente/<id_cliente>/listar/?proximas=true` | Paciente* | Historial o solo próximas activas |
+| PATCH | `<id_cita>/cliente/cancelar/` | Paciente | Body: `motivo?` |
+| PATCH | `<id_cita>/cliente/posponer/` | Paciente | Body: `fecha_hora, motivo?` |
 | GET | `profesional/listar/?proximas=true` | Profesional | Citas del profesional autenticado |
 | PATCH | `<id_cita>/profesional/cancelar/` | Profesional | Body: `motivo?` |
 | PATCH | `<id_cita>/profesional/posponer/` | Profesional | Body: `fecha_hora, motivo?` |
 | PATCH | `<id_cita>/profesional/marcar-realizada/` | Profesional | — |
-| GET | `<id_cita>/` | Mixto | Profesional dueño, admin, o `?cliente=<id>` coincidente; si ninguno aplica, 403 |
+| GET | `<id_cita>/` | Mixto | Paciente dueño, profesional que atiende o admin; si ninguno aplica, 403 |
 | GET | `listar/?cliente=&profesional=&estado=` | Admin | Listado administrativo con filtros combinables |
 
-\* Marcados como "Público" porque el paciente aún no tiene sesión propia (ver [sección 12](#12-deuda-técnica-conocida)): hoy basta con conocer el `id_cliente` para operar sobre sus citas.
+Los cuatro endpoints de paciente exigen `Authorization: Bearer <token paciente>` y toman el dueño de la cita desde el token, nunca del cuerpo de la petición. El `id_cliente` dejó de viajar en el body al implementarse el login de `PmCliente`.
+
+\* El `id_cliente` sigue en la ruta de `cliente/<id_cliente>/listar/` por compatibilidad, pero solo se acepta si coincide con el del token; en caso contrario responde 403.
 
 ---
 
@@ -314,7 +316,7 @@ EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
 | `fecha_subida` | auto_now_add | |
 | `fecha_expiracion` | DateTimeField | calculada automáticamente, ver 10.2 |
 | `estado` | Boolean, default `True` | disponible/eliminado |
-| `motivo_eliminacion` | Choice opcional | `VE` Vencimiento, `OM` Orden médica |
+| `motivo_eliminacion` | Choice opcional | `VE` Vencimiento, `OM` Orden médica, `RP` Retirado por el paciente |
 
 ### 10.2 Lógica de vigencia (30 días)
 
@@ -335,12 +337,12 @@ EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
 
 | Método | Endpoint | Acceso | Descripción |
 |---|---|---|---|
-| POST | `subir/` | Público* | Multipart: `cliente, cita?, video, duracion_segundos, descripcion?` |
+| POST | `subir/` | Paciente | Multipart: `cita?, video, duracion_segundos, descripcion?` — el `cliente` se toma del token |
 | GET | `listar/?cliente=&cita=` | Profesional o Admin | Solo vigentes; si filtra por `cita` y quien pregunta es profesional, exige ser el dueño de esa cita |
 | GET | `<id_video>/` | Profesional o Admin | 404 si venció o fue eliminado |
 | DELETE | `<id_video>/eliminar/` | Profesional o Admin | Eliminación anticipada (`motivo_eliminacion='OM'`) |
-
-\* Ver nota de la sección 9.3 y [sección 12](#12-deuda-técnica-conocida).
+| GET | `mis-videos/` | Paciente | Los videos vigentes del paciente autenticado |
+| DELETE | `mis-videos/<id_video>/eliminar/` | Paciente | El paciente retira un video propio (`motivo_eliminacion='RP'`) |
 
 ---
 
@@ -358,19 +360,24 @@ EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
 
 Documentada aquí para que quien retome el código sepa qué falta, no para "denunciar" nada:
 
-- **`PmCliente` no tiene login/JWT propio.** Los endpoints de `PmCita` y `PmVideo` marcados como "Público" en las tablas de arriba (`reservar/`, cancelar/posponer por cliente, `subir/` video) son públicos **solo porque el paciente todavía no tiene una sesión autenticada**: reciben el `id_cliente` como parte del body/query en vez de extraerlo de un token. Esto significa que, hoy, cualquiera que conozca el `id_cliente` de un paciente puede reservar, cancelar o reprogramar sus citas, y subir videos "en su nombre". Hay TODOs explícitos en el código (`PmCita/views.py`, `PmCliente/views.py`, `PmVideo/views.py`) marcando que, cuando exista una sesión propia de paciente, estos endpoints deben pasar a exigir autenticación y tomar `id_cliente` del token JWT, no del body. **Si se implementa un login de paciente, hay que revisar y endurecer estos endpoints como parte del mismo cambio.**
 - **Comentarios de "rol máximo" desactualizados.** Varios `urls.py` de `PmMedico` documentan (en comentarios) que ciertas acciones administrativas requieren `is_superuser`, pero el permiso real aplicado (`EsAdministrador`) solo exige `is_staff`. Ver nota en [sección 6](#6-autenticación-y-autorización).
-- **`PmCliente.rut_cliente` y `PmCliente.telefono_cliente` no tienen validación de formato**, a diferencia de sus equivalentes en `PM_Profesional`. Si se necesita consistencia, se puede reutilizar `Security.validators.validar_rut_chileno` / `validar_telefono` en `PmCliente/serializer.py`.
+
+### 12.1 Deuda ya resuelta
+
+- ~~**`PmCliente` no tiene login/JWT propio.**~~ **Resuelto.** `PmCliente` tiene sesión propia (`POST api/pm/clientes/login/`, token con el claim `id_cliente`, reconocido por `Security.authentication`) y el permiso `Security.permissions.EsCliente`. Como parte del mismo cambio se endurecieron los endpoints que antes eran públicos: los cuatro de paciente en `PmCita` (`reservar/`, `cliente/<id>/listar/`, cancelar y posponer), `cita_detalle` y la subida de video en `PmVideo` ahora exigen token de paciente y toman el dueño de `request.user`. El `id_cliente` ya no se acepta desde el body ni desde `?cliente=`, por lo que **conocer el id de otro paciente ya no permite operar sobre sus citas ni sus videos**.
+- ~~**`PmCliente.rut_cliente` y `PmCliente.telefono_cliente` no tienen validación de formato.**~~ **Resuelto.** Ambos campos usan `Security.validators.validar_rut_chileno` y `validar_telefono`, igual que sus equivalentes en `PM_Profesional`, y el RUT se normaliza a mayúsculas para que el dígito verificador `K` no impida el inicio de sesión.
 
 ---
 
 ## 13. Tabla resumen de endpoints
 
-| App | Prefijo | Público | Requiere JWT (Profesional) | Requiere JWT (Admin) |
-|---|---|---|---|---|
-| `PmMedico` | `api/pm/medicos/` | `registrar/`, `login/`, `directorio/`, `especialidades/listar/`, `<id>/especialidades/` | `perfil/*`, `documentos/subir/`, `documentos/<id>/eliminar/`, `especialidades/asignar/`, `especialidades/<id>/quitar/` | `listar/`, `<id>/`, `<id>/documentos/`, `documentos/<id>/validar/`, `acreditaciones/*`, `especialidades/crear/ editar/ eliminar/` |
-| `PmCliente` | `api/pm/clientes/` | `registrar/` | `listar/`, `<id>/` (compartido con Admin) | `<id>/editar/`, `<id>/eliminar/` |
-| `PmCita` | `api/pm/citas/` | `reservar/`, `cliente/<id>/listar/`, `<id>/cliente/cancelar\|posponer/` (ver §12) | `profesional/listar/`, `<id>/profesional/*` | `listar/` |
-| `PmVideo` | `api/pm/videos/` | `subir/` (ver §12) | `listar/`, `<id>/`, `<id>/eliminar/` (compartido con Admin) | ídem |
+| App | Prefijo | Público | Requiere JWT (Paciente) | Requiere JWT (Profesional) | Requiere JWT (Admin) |
+|---|---|---|---|---|---|
+| `PmMedico` | `api/pm/medicos/` | `registrar/`, `login/`, `directorio/`, `especialidades/listar/`, `<id>/especialidades/` | — | `perfil/*`, `documentos/subir/`, `documentos/<id>/eliminar/`, `especialidades/asignar/`, `especialidades/<id>/quitar/` | `listar/`, `<id>/`, `<id>/documentos/`, `documentos/<id>/validar/`, `acreditaciones/*`, `especialidades/crear/ editar/ eliminar/` |
+| `PmCliente` | `api/pm/clientes/` | `registrar/`, `login/` | `perfil/`, `perfil/editar/`, `perfil/password/` | `listar/`, `<id>/` (compartido con Admin) | `<id>/editar/`, `<id>/eliminar/` |
+| `PmCita` | `api/pm/citas/` | — | `reservar/`, `cliente/<id>/listar/`, `<id>/cliente/cancelar\|posponer/` | `profesional/listar/`, `<id>/profesional/*` | `listar/` |
+| `PmVideo` | `api/pm/videos/` | — | `subir/`, `mis-videos/`, `mis-videos/<id>/eliminar/` | `listar/`, `<id>/`, `<id>/eliminar/` (compartido con Admin) | ídem |
+
+`<id_cita>/` (detalle de cita) acepta las tres identidades autenticadas, siempre que sean parte de esa cita.
 
 > Para el detalle de cada request/response, revisar la sección del módulo correspondiente más arriba o los comentarios en cada `urls.py`.

@@ -1,6 +1,5 @@
 from rest_framework import serializers
 
-from PmCliente.models import PmCliente
 from PmMedico.models import PM_Profesional
 from PmCita.models import PmCita, DURACION_MINUTOS_MINIMA, DURACION_MINUTOS_MAXIMA
 
@@ -36,9 +35,15 @@ class PmCitaSerializer(serializers.ModelSerializer):
 # directamente, los datos ya validados se pasan a los métodos del queryset)
 # ==========================================================================
 
+# El cliente dueño de la acción NO viaja en el cuerpo de estas peticiones: se
+# toma del token de sesión del paciente en la vista (request.user). Antes sí se
+# enviaba, porque PmCliente no tenía sesión propia; ahora que la tiene, aceptar
+# un id_cliente del body permitiría reservar, cancelar o posponer citas a nombre
+# de otra persona con solo conocer su id.
+
+
 class PmCitaReservarSerializer(serializers.Serializer):
-    """Body esperado por POST /api/pm/citas/reservar/."""
-    id_cliente = serializers.PrimaryKeyRelatedField(queryset=PmCliente.objects.activos())
+    """Body esperado por POST /api/pm/citas/reservar/ (paciente autenticado)."""
     id_profesional = serializers.PrimaryKeyRelatedField(queryset=PM_Profesional.objects.activos())
     fecha_hora = serializers.DateTimeField()
     motivo_consulta = serializers.CharField(required=False, allow_blank=True, default='')
@@ -48,18 +53,12 @@ class PmCitaReservarSerializer(serializers.Serializer):
 
 
 class PmCitaClienteCancelarSerializer(serializers.Serializer):
-    """
-    Body esperado al cancelar desde el lado del cliente. Como PmCliente
-    todavía no tiene sesión propia (ver TODO en views.py), el frontend debe
-    enviar el id_cliente dueño de la cita.
-    """
-    id_cliente = serializers.PrimaryKeyRelatedField(queryset=PmCliente.objects.activos())
+    """Body esperado al cancelar desde el lado del cliente (paciente autenticado)."""
     motivo = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class PmCitaClientePosponerSerializer(serializers.Serializer):
-    """Body esperado al posponer desde el lado del cliente."""
-    id_cliente = serializers.PrimaryKeyRelatedField(queryset=PmCliente.objects.activos())
+    """Body esperado al posponer desde el lado del cliente (paciente autenticado)."""
     fecha_hora = serializers.DateTimeField()
     motivo = serializers.CharField(required=False, allow_blank=True, default='')
 

@@ -32,6 +32,9 @@ class PmVideoSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id_video',
+            # El dueño se toma del token en la vista (serializer.save(cliente=...)),
+            # nunca del cuerpo de la petición: así nadie sube videos a nombre de otro.
+            'cliente',
             'fecha_subida',
             'fecha_expiracion',
             'estado',
@@ -49,7 +52,12 @@ class PmVideoSerializer(serializers.ModelSerializer):
         ni ya realizada).
         """
         cita = datos.get('cita')
-        cliente = datos.get('cliente')
+
+        # OJO: 'cliente' es de solo lectura (el dueño se toma del token en la
+        # vista), así que NO llega dentro de 'datos'. La vista lo entrega por
+        # contexto; sin esto la comprobación de propiedad de la cita quedaría
+        # siempre en falso y cualquiera podría colgar su video de una cita ajena.
+        cliente = datos.get('cliente') or self.context.get('cliente')
 
         if cita:
             if cliente and cita.cliente_id != cliente.pk:
