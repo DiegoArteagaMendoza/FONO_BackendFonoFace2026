@@ -19,10 +19,11 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Carga variables desde FonoAppPortalMedico/.env (no sobreescribe variables ya definidas
-# en el entorno real, por lo que en producción basta con exportar las variables del
-# proveedor de hosting).
-load_dotenv(BASE_DIR / '.env')
+# Carga variables desde el .env centralizado en la raíz del repo (compartido con FonoApp,
+# ver Backend_Fono/.env y Backend_Fono/.env.example) — no sobreescribe variables ya definidas
+# en el entorno real, por lo que en despliegue basta con exportar las variables del proveedor
+# de hosting (ver FonoAppPortalMedico/.env.develop).
+load_dotenv(BASE_DIR.parent / '.env')
 
 
 def env_bool(nombre, default=False):
@@ -41,11 +42,12 @@ def env_list(nombre, default=''):
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # IMPORTANTE: este proyecto (Portal Médico) y el proyecto principal FonoApp comparten
-# la misma base de datos PostgreSQL (ver docker-compose.yml) y los administradores
-# inician sesión únicamente en FonoApp. Para que un JWT emitido por el login de
-# FonoApp sea válido aquí (por ejemplo, para aprobar acreditaciones), el SECRET_KEY
-# de ambos proyectos DEBE ser el mismo. En despliegue, define la misma variable de
-# entorno SECRET_KEY en ambos servicios.
+# la misma base de datos y los administradores inician sesión únicamente en FonoApp.
+# Para que un JWT emitido por el login de FonoApp sea válido aquí (por ejemplo, para
+# aprobar acreditaciones), el SECRET_KEY de ambos proyectos DEBE ser el mismo. En
+# desarrollo local ambos leen el mismo .env centralizado en la raíz del repo (ver
+# Backend_Fono/.env), así que esto ya viene garantizado; en despliegue, define la
+# misma variable de entorno SECRET_KEY en ambos servicios (ver .env.develop por proyecto).
 SECRET_KEY = os.environ.get(
     'SECRET_KEY',
     'django-insecure-)dj+y&$f2+q)elr0c!&k2fo^*^y+l$p*&l+civ#k3)fx959a0%'
@@ -124,11 +126,11 @@ WSGI_APPLICATION = 'FonoAppPM.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-# Misma base de datos física que FonoApp (ver docker-compose.yml en la raíz del repo):
+# Misma base de datos física que FonoApp (ver DATABASE_URL en el .env de la raíz del repo):
 # aquí viven, entre otras, la tabla FonoApp_Administracion que PmMedico consulta
 # (de solo lectura, vía un modelo no gestionado) para saber quién es administrador.
-# Motor de base de datos: 'postgresql' (default, igual que siempre) o 'mysql'
-# (usado en el despliegue en cPanel, ver deploy/mysql/). Definir DB_ENGINE=mysql
+# Motor de base de datos: 'postgresql' (default) o 'mysql' (usado tanto en desarrollo
+# local como en el despliegue en cPanel, ver deploy/mysql/). Definir DB_ENGINE=mysql
 # solo afecta al camino DB_* de abajo; con DATABASE_URL el motor se detecta
 # solo por el esquema de la URL ("postgres://" o "mysql://").
 DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql').strip().lower()

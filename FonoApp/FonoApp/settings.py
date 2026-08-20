@@ -5,9 +5,11 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Carga variables desde FonoApp/.env (no sobreescribe variables ya definidas en el entorno real,
-# por lo que en producción basta con exportar las variables del sistema/proveedor de hosting).
-load_dotenv(BASE_DIR / '.env')
+# Carga variables desde el .env centralizado en la raíz del repo (compartido con
+# FonoAppPortalMedico, ver Backend_Fono/.env y Backend_Fono/.env.example) — no sobreescribe
+# variables ya definidas en el entorno real, por lo que en despliegue basta con exportar las
+# variables del proveedor de hosting (ver FonoApp/.env.develop, FonoApp/.env.production.example).
+load_dotenv(BASE_DIR.parent / '.env')
 
 
 def env_bool(nombre, default=False):
@@ -99,12 +101,14 @@ WSGI_APPLICATION = 'FonoApp.wsgi.application'
 
 
 # Base de datos:
-# - En desarrollo se arma con las variables DB_* (ver .env / .env.example, coinciden con docker-compose.yml).
-# - En despliegue, si se define DATABASE_URL (formato estándar de 12-factor: postgres://user:pass@host:port/nombre),
-#   esta tiene prioridad sobre las variables DB_* (ver .env.production.example).
+# - Desarrollo local: DATABASE_URL en el .env de la raíz del repo apunta a la BDD MySQL
+#   "develop" compartida (ver .env.example en la raíz). Si no se define DATABASE_URL,
+#   se arma con las variables DB_* de abajo (fallback, útil por ejemplo para Postgres local).
+# - Despliegue: mismo mecanismo de DATABASE_URL (formato 12-factor: mysql://user:pass@host:port/nombre
+#   o postgres://..., ver .env.develop / .env.production.example por proyecto).
 # Motor de base de datos: 'postgresql' (default, igual que siempre) o 'mysql'
-# (usado en el despliegue en cPanel, ver deploy/mysql/). Definir DB_ENGINE=mysql
-# solo afecta al camino DB_* de abajo; con DATABASE_URL el motor se detecta
+# (usado tanto en desarrollo local como en el despliegue en cPanel, ver deploy/mysql/).
+# Definir DB_ENGINE=mysql solo afecta al camino DB_* de abajo; con DATABASE_URL el motor se detecta
 # solo por el esquema de la URL ("postgres://" o "mysql://").
 DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql').strip().lower()
 
