@@ -1,19 +1,23 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
 from Security.permissions import EsAdministrador, EsCliente, EsProfesional
 from PmMedico.models import Administrador, PM_Profesional
 from PmCliente.models import PmCliente
-from PmCita.models import PmCita
+from PmCita.models import PmCita, PmDisponibilidad
 from PmCita.serializer import (
     PmCitaSerializer,
-    PmCitaReservarSerializer,
+    PmCitaReservarBloqueSerializer,
     PmCitaClienteCancelarSerializer,
     PmCitaClientePosponerSerializer,
     PmCitaCancelarSerializer,
     PmCitaPosponerSerializer,
+    PmDisponibilidadSerializer,
+    PmDisponibilidadPublicaSerializer,
+    PmDisponibilidadPublicarSerializer,
 )
 
 
@@ -33,30 +37,69 @@ def _respuesta_error(error, mensaje_404='no encontrada'):
 # ==========================================================================
 
 @api_view(['POST'])
-@permission_classes([EsCliente])
+@permission_classes([AllowAny])
 def cita_reservar(request):
     """
-    El paciente autenticado reserva una cita. Valida que el profesional esté
-    acreditado, que la hora tenga la anticipación mínima y que no se cruce con
-    otra cita del mismo profesional.
+    Reserva una cita tomando uno de los bloques que el profesional publicó.
+
+    Se puede reservar de dos maneras:
+
+      1. Con sesión de paciente: el dueño de la cita sale del token y el cuerpo
+         solo lleva el bloque y el motivo.
+      2. Sin sesión: además hay que enviar 'paciente' con los datos personales.
+         Con ellos se crea (o se recupera) su ficha; ver
+         PmCliente_Queryset.obtener_o_crear_para_reserva.
+
+    Este endpoint es AllowAny a propósito, pero eso NO reabre el problema que
+    se corrigió antes: entonces se aceptaba un 'id_cliente' del cuerpo, así que
+    conocer el id de alguien bastaba para agendar en su nombre. Ahora no hay
+    forma de apuntar a una ficha ajena — solo se pueden enviar datos personales,
+    y si el RUT corresponde a una cuenta con contraseña la reserva se rechaza y
+    se pide iniciar sesión.
     """
-    entrada = PmCitaReservarSerializer(data=request.data)
+    entrada = PmCitaReservarBloqueSerializer(data=request.data)
     entrada.is_valid(raise_exception=True)
     datos = entrada.validated_data
 
+    # El token manda: si hay sesión de paciente, los datos personales del cuerpo
+    # se ignoran (no tendría sentido reservar para otro estando autenticado).
+    if isinstance(request.user, PmCliente):
+        cliente = request.user
+    else:
+        if not datos.get('paciente'):
+            return Response(
+                {'paciente': ['Debe iniciar sesión o completar sus datos personales para reservar.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            cliente = PmCliente.objects.obtener_o_crear_para_reserva(
+                nombres=datos['paciente']['nombres_cliente'],
+                apellidos=datos['paciente']['apellidos_clientes'],
+                rut=datos['paciente']['rut_cliente'],
+                fecha_nacimiento=datos['paciente']['fecha_nacimiento_cliente'],
+                email=datos['paciente']['email_cliente'],
+                telefono=datos['paciente']['telefono_cliente'],
+            )
+        except DjangoValidationError as error:
+            detalle = error.message_dict if hasattr(error, 'message_dict') else error.messages
+            return Response(detalle, status=status.HTTP_400_BAD_REQUEST)
+
     try:
-        cita = PmCita.objects.reservar(
-            cliente=request.user,
-            profesional=datos['id_profesional'],
-            fecha_hora=datos['fecha_hora'],
+        cita = PmCita.objects.reservar_bloque(
+            cliente=cliente,
+            disponibilidad=datos['id_disponibilidad'],
             motivo_consulta=datos.get('motivo_consulta', ''),
-            duracion_minutos=datos.get('duracion_minutos'),
         )
     except DjangoValidationError as error:
         detalle = error.message_dict if hasattr(error, 'message_dict') else error.messages
         return Response({'error': detalle}, status=status.HTTP_400_BAD_REQUEST)
 
-    return Response(PmCitaSerializer(cita).data, status=status.HTTP_201_CREATED)
+    respuesta = PmCitaSerializer(cita).data
+    # El frontend necesita saber a qué ficha quedó ligada la cita para poder
+    # asociarle después un video, cosa que quien reservó sin sesión no sabría.
+    respuesta['reservada_sin_sesion'] = not isinstance(request.user, PmCliente)
+
+    return Response(respuesta, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -239,3 +282,82 @@ def citas_listar(request):
         citas = citas.filter(estado=estado)
 
     return Response(PmCitaSerializer(citas, many=True).data)
+
+
+# ==========================================================================
+# DISPONIBILIDAD: horas que el profesional publica para ser reservadas
+# ==========================================================================
+
+@api_view(['POST'])
+@permission_classes([EsProfesional])
+def disponibilidad_publicar(request):
+    """
+    El profesional publica una o varias horas disponibles.
+
+    Cada bloque se evalúa por separado: que una hora choque con algo ya
+    publicado no invalida las demás. La respuesta trae las creadas y las
+    rechazadas con su motivo, para poder mostrarlo sin adivinar.
+    """
+    entrada = PmDisponibilidadPublicarSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+    datos = entrada.validated_data
+
+    creados, rechazados = PmDisponibilidad.objects.publicar_varios(
+        profesional=request.user,
+        fechas_hora=datos['fechas_hora'],
+        duracion_minutos=datos.get('duracion_minutos'),
+    )
+
+    codigo = status.HTTP_201_CREATED if creados else status.HTTP_400_BAD_REQUEST
+    return Response(
+        {
+            'creados': PmDisponibilidadSerializer(creados, many=True).data,
+            'rechazados': rechazados,
+        },
+        status=codigo,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([EsProfesional])
+def disponibilidad_mia(request):
+    """
+    Horas publicadas por el profesional autenticado, con el dato de si ya
+    fueron tomadas. Sin parámetros entrega solo las futuras; con ?todas=true
+    incluye también las que ya pasaron.
+    """
+    if request.query_params.get('todas', '').lower() == 'true':
+        bloques = PmDisponibilidad.objects.de_profesional(request.user.pk)
+    else:
+        bloques = PmDisponibilidad.objects.proximos_de_profesional(request.user.pk)
+
+    return Response(PmDisponibilidadSerializer(bloques, many=True).data)
+
+
+@api_view(['DELETE'])
+@permission_classes([EsProfesional])
+def disponibilidad_retirar(request, id_disponibilidad):
+    """
+    Retira una hora publicada que todavía nadie reservó. Si ya tiene paciente,
+    se responde 400 pidiendo que cancele la cita, que sí deja constancia.
+    """
+    bloque, error = PmDisponibilidad.objects.retirar(id_disponibilidad, request.user.pk)
+    if error:
+        return _respuesta_error(error, mensaje_404='no encontrado')
+
+    return Response(PmDisponibilidadSerializer(bloque).data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def disponibilidad_de_profesional(request, id_profesional):
+    """
+    Horas libres de un profesional, para que el paciente elija una.
+
+    Es público porque se puede reservar sin haber iniciado sesión, y porque no
+    revela nada sensible: solo dice cuándo hay hueco, nunca quién ocupa los
+    demás. Se entregan únicamente los bloques reservables (libres y con la
+    anticipación mínima por delante).
+    """
+    bloques = PmDisponibilidad.objects.disponibles_de_profesional(id_profesional)
+    return Response(PmDisponibilidadPublicaSerializer(bloques, many=True).data)

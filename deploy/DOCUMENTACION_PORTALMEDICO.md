@@ -277,7 +277,7 @@ Propiedades: `esta_activa` (estado == `RE`), `ya_paso`, `hora_limite_cambio` (`f
 
 | Método | Endpoint | Acceso | Descripción |
 |---|---|---|---|
-| POST | `reservar/` | Paciente | Body: `id_profesional, fecha_hora, motivo_consulta?, duracion_minutos?` |
+| POST | `reservar/` | Paciente o público | Body: `id_disponibilidad, motivo_consulta?` (+ `paciente{...}` si no hay sesión) |
 | GET | `cliente/<id_cliente>/listar/?proximas=true` | Paciente* | Historial o solo próximas activas |
 | PATCH | `<id_cita>/cliente/cancelar/` | Paciente | Body: `motivo?` |
 | PATCH | `<id_cita>/cliente/posponer/` | Paciente | Body: `fecha_hora, motivo?` |
@@ -287,10 +287,35 @@ Propiedades: `esta_activa` (estado == `RE`), `ya_paso`, `hora_limite_cambio` (`f
 | PATCH | `<id_cita>/profesional/marcar-realizada/` | Profesional | — |
 | GET | `<id_cita>/` | Mixto | Paciente dueño, profesional que atiende o admin; si ninguno aplica, 403 |
 | GET | `listar/?cliente=&profesional=&estado=` | Admin | Listado administrativo con filtros combinables |
+| POST | `disponibilidad/publicar/` | Profesional | Body: `fechas_hora[] (máx. 100), duracion_minutos?` |
+| GET | `disponibilidad/mias/?todas=true` | Profesional | Sus bloques publicados, con el dato de si ya fueron tomados |
+| DELETE | `disponibilidad/<id>/retirar/` | Profesional | Baja lógica; rechaza si el bloque ya tiene cita |
+| GET | `disponibilidad/profesional/<id>/` | Público | Bloques reservables de ese profesional |
 
-Los cuatro endpoints de paciente exigen `Authorization: Bearer <token paciente>` y toman el dueño de la cita desde el token, nunca del cuerpo de la petición. El `id_cliente` dejó de viajar en el body al implementarse el login de `PmCliente`.
+Los endpoints de gestión de citas del paciente (`listar`, `cancelar`, `posponer`) exigen `Authorization: Bearer <token paciente>` y toman el dueño desde el token, nunca del cuerpo. El `id_cliente` dejó de viajar en el body al implementarse el login de `PmCliente`.
 
 \* El `id_cliente` sigue en la ruta de `cliente/<id_cliente>/listar/` por compatibilidad, pero solo se acepta si coincide con el del token; en caso contrario responde 403.
+
+### 9.4 Disponibilidad y reserva
+
+El paciente **ya no propone una hora libre**: el profesional publica bloques (`PmDisponibilidad`) y el paciente toma uno. De ese bloque salen el horario, la duración y el profesional, por lo que `reservar/` solo recibe `id_disponibilidad`.
+
+| Campo de `PmDisponibilidad` | Notas |
+|---|---|
+| `profesional` | FK `PM_Profesional`, `CASCADE` |
+| `fecha_hora` / `duracion_minutos` | Único por (profesional, fecha_hora); el solape parcial se valida en el queryset |
+| `cita` | `OneToOne` a `PmCita`, `SET_NULL`. Nulo = bloque libre |
+| `estado` | Baja lógica: el profesional retira un bloque que nadie tomó |
+
+Reglas:
+
+- Un bloque es **reservable** solo si está vigente, sin cita y con la anticipación mínima (2 h) por delante. Es lo único que entrega el listado público.
+- **Cancelar una cita libera su bloque**, que vuelve a ofrecerse: esa hora del profesional quedó efectivamente disponible. Sin esto, cada cancelación le comería una hora de agenda para siempre.
+- **Reprogramar también lo libera**, porque la cita se mueve a una hora que el profesional no publicó.
+- Un bloque **ya reservado no se puede retirar**: hay que cancelar la cita, que sí registra el motivo y avisa al paciente.
+- La reserva usa `select_for_update` sobre el bloque, de modo que dos pacientes simultáneos no puedan tomar la misma hora.
+
+**Reserva sin cuenta.** `reservar/` es `AllowAny`: quien no tiene sesión envía además `paciente{...}` con sus datos personales, y con ellos se crea una ficha `PmCliente` **sin contraseña** (no permite iniciar sesión hasta que la persona se registre). Si el RUT ya corresponde a una cuenta **con** contraseña, la reserva se rechaza y se pide iniciar sesión: de lo contrario, conocer un RUT bastaría para agendar a nombre de otro. Los datos de contacto de una ficha existente nunca se sobrescriben.
 
 ---
 
