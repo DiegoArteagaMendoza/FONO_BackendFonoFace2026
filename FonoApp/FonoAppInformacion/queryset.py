@@ -3,11 +3,18 @@ from io import BytesIO
 from PIL import Image
 from django.db import models
 from django.utils import timezone
-from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 def _convertir_a_webp(img):
     """
-    Convierte un archivo de imagen subido a formato WebP y devuelve un ContentFile listo para guardar.
+    Convierte un archivo de imagen subido a WebP y lo devuelve listo para guardar.
+
+    Devuelve un SimpleUploadedFile y NO un ContentFile, aunque para un FileField
+    ambos servirían. CloudinaryField.pre_save solo sube a la nube si el valor es
+    una instancia de UploadedFile; con cualquier otro File se va por el else y
+    guarda str(valor) en la columna, que para un ContentFile es literalmente
+    'Raw content'. El resultado era una fila apuntando a ese texto y la imagen
+    perdida, sin ningún error visible.
     """
     imagen_pil = Image.open(img)
 
@@ -22,7 +29,7 @@ def _convertir_a_webp(img):
     nombre_base = os.path.splitext(img.name)[0]
     nombre_webp = f"{nombre_base}.webp"
 
-    return ContentFile(buffer.getvalue(), name=nombre_webp)
+    return SimpleUploadedFile(nombre_webp, buffer.getvalue(), content_type='image/webp')
 
 
 class FonoApp_Informacion_Queryset(models.QuerySet):
