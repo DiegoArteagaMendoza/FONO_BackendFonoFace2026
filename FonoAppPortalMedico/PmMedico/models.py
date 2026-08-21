@@ -9,6 +9,8 @@ from PmMedico.queryset import (
     PM_ProfesionalEspecialidadQueryset,
 )
 from Security.validators import validar_rut_chileno, validar_telefono, validar_archivo_documento
+# Importación necesaria para Cloudinary
+from cloudinary.models import CloudinaryField
 
 
 # =========================================================
@@ -177,11 +179,13 @@ class PM_Documento_Respaldo(models.Model):
 
     tipo_documeto_profesional = models.CharField(max_length=30, choices=TIPOS_DOCUMENTO)
 
-    # Archivo físico subido (PDF/imagen); la URL/ruta queda registrada automáticamente
-    # en este campo, igual que FonoApp_Noticia_Imagen.imagen en el proyecto principal.
-    url_documento_profesional = models.FileField(
-        upload_to='pm_medico/documentos/%Y/%m/',
-        validators=[validar_archivo_documento],
+    # ACTUALIZACIÓN A CLOUDINARY
+    # CloudinaryField acepta el parámetro resource_type='raw' para manejar PDFs
+    # o cualquier otro tipo de archivo no-imagen.
+    url_documento_profesional = CloudinaryField(
+        'documento',
+        folder='pm_medico/documentos/',
+        resource_type='raw'
     )
 
     fecha_subida_documento_profesional = models.DateTimeField(auto_now_add=True)

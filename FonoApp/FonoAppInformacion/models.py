@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from FonoAppInformacion.queryset import FonoApp_Informacion_Queryset
+from cloudinary.models import CloudinaryField # Importación necesaria
 
 class FonoApp_Informacion(models.Model):
     
@@ -65,7 +66,11 @@ class FonoApp_Informacion_Imagen(models.Model):
         on_delete=models.CASCADE, 
         related_name='imagenes' # Importante para el Serializer
     )
-    imagen = models.ImageField(upload_to='informacion/imagenes/', verbose_name='Imagen')
+    
+    # ACTUALIZACIÓN A CLOUDINARY
+    # Reemplaza models.ImageField(upload_to='informacion/imagenes/', ...)
+    imagen = CloudinaryField('Imagen', folder='informacion_imagenes')
+    
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
     class Meta:

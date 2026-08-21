@@ -80,7 +80,9 @@ DEV_APPS = [
 FRAMEWORKS = [
     'rest_framework',
     'corsheaders',
-    'rest_framework_simplejwt'
+    'rest_framework_simplejwt',
+    'cloudinary_storage',
+    'cloudinary',
 ]
 
 INSTALLED_APPS = DEV_APPS + BASE_APPS + FRAMEWORKS
@@ -122,6 +124,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'FonoAppPM.wsgi.application'
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': 'tu_nombre_de_nube',
+    'API_KEY': 'tu_api_key',
+    'API_SECRET': 'tu_api_secret',
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 
 # Database
