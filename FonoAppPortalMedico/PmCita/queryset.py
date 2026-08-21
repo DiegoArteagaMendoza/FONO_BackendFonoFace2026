@@ -112,7 +112,19 @@ class PmCita_Queryset(models.QuerySet):
         cita.fecha_cancelacion = timezone.now()
         cita.cancelada_por = origen
         cita.save(update_fields=['estado', 'motivo_cancelacion', 'fecha_cancelacion', 'cancelada_por'])
+
+        # Si la cita venía de un bloque publicado, ese horario del profesional
+        # queda libre otra vez y vuelve a ofrecerse. Sin esto, cada cancelación
+        # le comería una hora de agenda al profesional para siempre.
+        self._liberar_bloque(cita)
+
         return cita, None
+
+    def _liberar_bloque(self, cita):
+        """Desliga el bloque de disponibilidad de una cita que dejó de estar activa."""
+        from PmCita.models import PmDisponibilidad
+
+        PmDisponibilidad.objects.filter(cita_id=cita.pk).update(cita=None)
 
     def cancelar_por_cliente(self, id_cita, id_cliente, motivo=None):
         """Solo el dueño de la cita puede cancelarla."""
@@ -160,6 +172,11 @@ class PmCita_Queryset(models.QuerySet):
         if not cita.fecha_hora_original:
             cita.fecha_hora_original = cita.fecha_hora
 
+        # La cita se mueve a una hora que el profesional no publicó como bloque,
+        # así que el bloque original deja de corresponder y se libera: esa hora
+        # vuelve a estar disponible para quien la quiera.
+        self._liberar_bloque(cita)
+
         cita.fecha_hora = nueva_fecha_hora
         cita.veces_reprogramada += 1
         cita.motivo_reprogramacion = motivo or ''
@@ -189,6 +206,51 @@ class PmCita_Queryset(models.QuerySet):
     # Atención
     # ----------------------------------------------------------------
 
+    def reservar_bloque(self, cliente, disponibilidad, motivo_consulta=''):
+        """
+        Reserva la cita a partir de un bloque publicado por el profesional.
+
+        A diferencia de reservar(), aquí la fecha y la duración NO las propone
+        el paciente: salen del bloque. Se sigue comprobando la acreditación y
+        la anticipación mínima, porque un bloque pudo publicarse hace días y
+        estar a punto de ocurrir.
+        """
+        from PmCita.models import PmDisponibilidad, HORAS_MINIMAS_ANTICIPACION
+
+        profesional = disponibilidad.profesional
+
+        if not type(profesional).objects.verificados().filter(pk=profesional.pk).exists():
+            raise ValidationError('El profesional seleccionado no está acreditado para atender.')
+
+        with transaction.atomic():
+            # select_for_update evita que dos pacientes tomen el mismo bloque a
+            # la vez: el segundo espera y encuentra la cita ya asignada.
+            bloqueado = PmDisponibilidad.objects.select_for_update().get(pk=disponibilidad.pk)
+
+            if not bloqueado.estado:
+                raise ValidationError('Esa hora ya no está disponible.')
+            if bloqueado.cita_id is not None:
+                raise ValidationError('Esa hora acaba de ser tomada por otra persona.')
+
+            margen_minimo = timezone.now() + timedelta(hours=HORAS_MINIMAS_ANTICIPACION)
+            if bloqueado.fecha_hora < margen_minimo:
+                raise ValidationError(
+                    f'La cita debe reservarse con al menos {HORAS_MINIMAS_ANTICIPACION} horas de anticipación.'
+                )
+
+            cita = self.create(
+                cliente=cliente,
+                profesional=profesional,
+                fecha_hora=bloqueado.fecha_hora,
+                duracion_minutos=bloqueado.duracion_minutos,
+                motivo_consulta=motivo_consulta,
+            )
+
+            bloqueado.cita = cita
+            bloqueado.save(update_fields=['cita'])
+
+        return cita
+
     def marcar_realizada(self, id_cita, id_profesional):
         """El profesional confirma que la atención se llevó a cabo."""
         try:
@@ -203,3 +265,153 @@ class PmCita_Queryset(models.QuerySet):
         cita.fecha_marcada_realizada = timezone.now()
         cita.save(update_fields=['estado', 'fecha_marcada_realizada'])
         return cita, None
+
+
+class PmDisponibilidad_Queryset(models.QuerySet):
+    """
+    Bloques horarios que los profesionales publican para ser reservados.
+
+    La regla central: un bloque solo se puede tomar si está vigente, sin cita
+    asignada y con la anticipación mínima todavía por delante. Esa condición
+    vive en disponibles() y es la que consulta tanto el listado público como
+    la reserva.
+    """
+
+    # ----------------------------------------------------------------
+    # Consultas
+    # ----------------------------------------------------------------
+
+    def vigentes(self):
+        """Bloques no retirados por el profesional."""
+        return self.filter(estado=True)
+
+    def de_profesional(self, id_profesional):
+        """Todos los bloques de un profesional, ocupados o no."""
+        return self.vigentes().filter(profesional_id=id_profesional)
+
+    def libres(self):
+        """Bloques vigentes que todavía no tienen una cita asignada."""
+        return self.vigentes().filter(cita__isnull=True)
+
+    def disponibles(self):
+        """
+        Bloques que un paciente puede reservar ahora mismo: libres y con al
+        menos la anticipación mínima por delante. Es lo único que se expone
+        públicamente.
+        """
+        from PmCita.models import HORAS_MINIMAS_ANTICIPACION
+
+        margen = timezone.now() + timedelta(hours=HORAS_MINIMAS_ANTICIPACION)
+        return self.libres().filter(fecha_hora__gte=margen)
+
+    def disponibles_de_profesional(self, id_profesional):
+        return self.disponibles().filter(profesional_id=id_profesional)
+
+    def proximos_de_profesional(self, id_profesional):
+        """Agenda publicada de un profesional de aquí en adelante, libre u ocupada."""
+        return self.de_profesional(id_profesional).filter(fecha_hora__gte=timezone.now())
+
+    # ----------------------------------------------------------------
+    # Publicación
+    # ----------------------------------------------------------------
+
+    def _hay_solape(self, profesional_id, fecha_hora, duracion_minutos):
+        """
+        True si el bloque propuesto se cruza con otro ya publicado del mismo
+        profesional. Mismo criterio que el solape de citas: los intervalos se
+        tratan como [inicio, fin), de modo que un bloque que termina a las
+        10:00 y otro que empieza a las 10:00 no se consideran cruzados.
+        """
+        inicio = fecha_hora
+        fin = fecha_hora + timedelta(minutes=duracion_minutos)
+
+        for bloque in self.de_profesional(profesional_id):
+            otro_inicio = bloque.fecha_hora
+            otro_fin = otro_inicio + timedelta(minutes=bloque.duracion_minutos)
+            if inicio < otro_fin and otro_inicio < fin:
+                return True
+        return False
+
+    def publicar(self, profesional, fecha_hora, duracion_minutos=None):
+        """
+        Publica un bloque. Exige que sea futuro, que la duración esté dentro
+        del rango permitido y que no se cruce con otro bloque del profesional.
+        """
+        from PmCita.models import (
+            DURACION_MINUTOS_DEFECTO,
+            DURACION_MINUTOS_MINIMA,
+            DURACION_MINUTOS_MAXIMA,
+        )
+
+        duracion_minutos = duracion_minutos or DURACION_MINUTOS_DEFECTO
+
+        if not (DURACION_MINUTOS_MINIMA <= duracion_minutos <= DURACION_MINUTOS_MAXIMA):
+            raise ValidationError(
+                f'La duración debe estar entre {DURACION_MINUTOS_MINIMA} y '
+                f'{DURACION_MINUTOS_MAXIMA} minutos.'
+            )
+
+        if fecha_hora < timezone.now():
+            raise ValidationError('No se puede publicar una hora que ya pasó.')
+
+        if self._hay_solape(profesional.pk, fecha_hora, duracion_minutos):
+            raise ValidationError('Ya tiene otra hora publicada que se cruza con ese horario.')
+
+        return self.create(
+            profesional=profesional,
+            fecha_hora=fecha_hora,
+            duracion_minutos=duracion_minutos,
+        )
+
+    @transaction.atomic
+    def publicar_varios(self, profesional, fechas_hora, duracion_minutos=None):
+        """
+        Publica varios bloques de una vez (por ejemplo, toda una mañana).
+
+        Devuelve (creados, rechazados). Los rechazados no interrumpen al resto:
+        publicar diez horas y que una se cruce con algo previo no debería
+        obligar a repetir las otras nueve, así que cada una se evalúa aparte y
+        el motivo del rechazo viaja de vuelta para mostrarlo.
+        """
+        creados = []
+        rechazados = []
+
+        for fecha_hora in fechas_hora:
+            try:
+                creados.append(self.publicar(profesional, fecha_hora, duracion_minutos))
+            except ValidationError as error:
+                rechazados.append({
+                    'fecha_hora': fecha_hora,
+                    'motivo': ' '.join(error.messages),
+                })
+
+        return creados, rechazados
+
+    # ----------------------------------------------------------------
+    # Retiro
+    # ----------------------------------------------------------------
+
+    def retirar(self, id_disponibilidad, id_profesional):
+        """
+        El profesional retira un bloque que publicó. Baja lógica, como el resto
+        del proyecto.
+
+        Un bloque ya reservado no se puede retirar: dejaría a la cita sin el
+        horario que la respalda y el paciente se enteraría de que no lo atienden
+        solo al llegar. Para eso está cancelar la cita, que sí avisa y registra
+        el motivo.
+        """
+        try:
+            bloque = self.get(pk=id_disponibilidad, profesional_id=id_profesional, estado=True)
+        except self.model.DoesNotExist:
+            return None, 'Bloque no encontrado.'
+
+        if bloque.esta_reservado:
+            return None, (
+                'Esa hora ya fue reservada por un paciente. Si no puede atenderla, '
+                'cancele la cita indicando el motivo.'
+            )
+
+        bloque.estado = False
+        bloque.save(update_fields=['estado'])
+        return bloque, None

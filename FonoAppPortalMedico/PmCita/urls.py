@@ -10,11 +10,16 @@ urlpatterns = [
     # =====================================================================
 
     # MÉTODO: POST | URL: /api/pm/citas/reservar/
-    # Requiere: Bearer <token paciente>
-    # BODY: {"id_profesional","fecha_hora" (ISO 8601, con anticipación
-    #        mínima), "motivo_consulta" (opcional),
-    #        "duracion_minutos" (opcional, por defecto 45)}
-    # RESPUESTA: el objeto JSON de la cita creada (Status 201).
+    # Acceso: con o sin sesión de paciente.
+    #   - Con Bearer <token paciente>: BODY {"id_disponibilidad",
+    #     "motivo_consulta" (opcional)}. El dueño sale del token.
+    #   - Sin sesión: además "paciente": {"nombres_cliente",
+    #     "apellidos_clientes","rut_cliente","fecha_nacimiento_cliente",
+    #     "email_cliente","telefono_cliente"}. Con esos datos se crea o se
+    #     recupera su ficha; si el RUT ya tiene cuenta con contraseña, se
+    #     responde 400 pidiendo iniciar sesión.
+    # La fecha y la duración NO se envían: salen del bloque publicado.
+    # RESPUESTA: el JSON de la cita creada más "reservada_sin_sesion" (201).
     path('reservar/', views.cita_reservar, name='cita-reservar'),
 
     # MÉTODO: GET | URL: /api/pm/citas/cliente/<id_cliente>/listar/
@@ -76,4 +81,44 @@ urlpatterns = [
     # MÉTODO: GET | URL: /api/pm/citas/listar/?cliente=1&profesional=3&estado=RE
     # Requiere: Bearer <token administrador> | Todos los filtros son opcionales.
     path('listar/', views.citas_listar, name='citas-listar'),
+
+    # =====================================================================
+    # DISPONIBILIDAD
+    # Horas que el profesional publica para que los pacientes las reserven.
+    # El paciente ya no propone una fecha libre: elige uno de estos bloques.
+    # =====================================================================
+
+    # MÉTODO: POST | URL: /api/pm/citas/disponibilidad/publicar/
+    # Requiere: Bearer <token profesional>
+    # BODY: {"fechas_hora": ["2026-09-01T10:00:00Z", ...] (máx. 100),
+    #        "duracion_minutos" (opcional, por defecto 45)}
+    # RESPUESTA: {"creados": [...], "rechazados": [{"fecha_hora","motivo"}]}.
+    # Cada bloque se evalúa por separado: uno rechazado no anula los demás.
+    path('disponibilidad/publicar/', views.disponibilidad_publicar, name='disponibilidad-publicar'),
+
+    # MÉTODO: GET | URL: /api/pm/citas/disponibilidad/mias/
+    #                     /api/pm/citas/disponibilidad/mias/?todas=true
+    # Requiere: Bearer <token profesional>. Sin el filtro entrega solo las
+    # futuras; con ?todas=true incluye las que ya pasaron.
+    path('disponibilidad/mias/', views.disponibilidad_mia, name='disponibilidad-mias'),
+
+    # MÉTODO: DELETE | URL: /api/pm/citas/disponibilidad/<id>/retirar/
+    # Requiere: Bearer <token profesional dueño del bloque>
+    # Baja lógica. Un bloque ya reservado NO se puede retirar: responde 400
+    # pidiendo cancelar la cita, que sí queda registrada con su motivo.
+    path(
+        'disponibilidad/<int:id_disponibilidad>/retirar/',
+        views.disponibilidad_retirar,
+        name='disponibilidad-retirar',
+    ),
+
+    # MÉTODO: GET | URL: /api/pm/citas/disponibilidad/profesional/<id>/
+    # Acceso: público (se puede reservar sin cuenta). Entrega solo los bloques
+    # reservables: libres y con la anticipación mínima por delante. No expone
+    # qué horas están ocupadas ni por quién.
+    path(
+        'disponibilidad/profesional/<int:id_profesional>/',
+        views.disponibilidad_de_profesional,
+        name='disponibilidad-de-profesional',
+    ),
 ]
