@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from FonoAppVoz.queryset import FonoApp_Voz_Queryset
+from cloudinary.models import CloudinaryField # Importación necesaria
 
 class CategoriaChoices(models.TextChoices):
     DEFINICION = 'DEFINICION', 'Definición'
@@ -23,7 +24,11 @@ class FonoApp_Voz(models.Model):
 
     titulo = models.CharField(max_length=150, verbose_name="Título")
     contenido = models.TextField(verbose_name="Contenido informativo sobre la voz")
-    img = models.ImageField(upload_to='voz/imagenes/', null=True, blank=True, verbose_name="Imagen")
+    
+    # ACTUALIZACIÓN A CLOUDINARY
+    # Reemplaza models.ImageField(upload_to='voz/imagenes/', null=True, blank=True, verbose_name="Imagen")
+    img = CloudinaryField('Imagen', folder='voz_imagenes', null=True, blank=True)
+    
     fuente = models.URLField(max_length=500, null=True, blank=True, verbose_name="Fuentes Científicas")
     estado = models.BooleanField(default=True, verbose_name="Activo") # 1 = activo / 0 = desactivado
 
