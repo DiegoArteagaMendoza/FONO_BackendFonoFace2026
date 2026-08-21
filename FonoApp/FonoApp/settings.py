@@ -101,13 +101,30 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'FonoApp.wsgi.application'
 
+# Credenciales de Cloudinary (imágenes de banner, noticias, cuidados, información
+# y voz). Salen del .env de la raíz del repo, NUNCA del código: son las mismas
+# para el Portal Médico y este proyecto, igual que DATABASE_URL y SECRET_KEY.
 CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': 'tu_nombre_de_nube',
-    'API_KEY': 'tu_api_key',
-    'API_SECRET': 'tu_api_secret',
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY', ''),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', ''),
 }
 
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+# CloudinaryField (los campos de los modelos) no lee CLOUDINARY_STORAGE: usa la
+# configuración global del SDK, que se fija aquí. secure=True para que las URLs
+# generadas sean siempre https.
+import cloudinary
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_STORAGE['CLOUD_NAME'],
+    api_key=CLOUDINARY_STORAGE['API_KEY'],
+    api_secret=CLOUDINARY_STORAGE['API_SECRET'],
+    secure=True,
+)
+
+# NOTA: DEFAULT_FILE_STORAGE ya no existe en Django 6 (se eliminó en 5.1); si se
+# define, se ignora en silencio. El almacenamiento por defecto se declara en el
+# diccionario STORAGES, más abajo en este archivo.
 
 # Base de datos:
 # - Desarrollo local: DATABASE_URL en el .env de la raíz del repo apunta a la BDD MySQL
@@ -208,8 +225,12 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # "Compressed" a secas el despliegue no se cae por un estático de una librería
 # de terceros mal referenciado.
 STORAGES = {
+    # Archivos subidos: Cloudinary (equivalente en Django 6 del antiguo
+    # DEFAULT_FILE_STORAGE). Los campos CloudinaryField suben por el SDK sin
+    # pasar por aquí, pero cualquier FileField/ImageField que se agregue en el
+    # futuro debe ir a la nube también, no al disco del hosting.
     'default': {
-        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage',
     },
     'staticfiles': {
         'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',

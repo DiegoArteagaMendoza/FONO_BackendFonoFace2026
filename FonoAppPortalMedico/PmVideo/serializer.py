@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from Security.archivos import url_absoluta
 from PmVideo.models import (
     PmVideo,
     DURACION_MAXIMA_SEGUNDOS,
@@ -44,6 +45,16 @@ class PmVideoSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'cita': {'required': False, 'allow_null': True},
         }
+
+    def to_representation(self, instance):
+        """
+        El campo 'video' es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que el
+        <video> del frontend pueda reproducirlo directo.
+        """
+        datos = super().to_representation(instance)
+        datos['video'] = url_absoluta(instance.video)
+        return datos
 
     def validate(self, datos):
         """

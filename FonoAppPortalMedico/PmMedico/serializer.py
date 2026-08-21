@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from Security.archivos import url_absoluta
 from PmMedico.models import (
     PM_Profesional,
     PM_Acreditacion,
@@ -61,6 +62,16 @@ class PM_Documento_RespaldoSerializer(serializers.ModelSerializer):
             'id_documento', 'id_profesional', 'fecha_subida_documento_profesional',
             'documento_profesional_valido',
         ]
+
+    def to_representation(self, instance):
+        """
+        El documento es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que el
+        administrador pueda abrir el PDF desde el panel.
+        """
+        datos = super().to_representation(instance)
+        datos['url_documento_profesional'] = url_absoluta(instance.url_documento_profesional)
+        return datos
 
     def create(self, validated_data):
         profesional = self.context['request'].user
