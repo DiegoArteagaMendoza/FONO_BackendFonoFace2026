@@ -10,6 +10,8 @@ from PmVideo.queryset import PmVideo_Queryset
 # Importación necesaria para Cloudinary
 from cloudinary.models import CloudinaryField
 
+from Security.archivos import borrar_de_cloudinary
+
 # ==========================================================================
 # REGLAS DEL NEGOCIO (centralizadas para no repetirlas en el código)
 # ==========================================================================
@@ -123,18 +125,19 @@ class PmVideo(models.Model):
         segundos = (self.fecha_expiracion - timezone.now()).total_seconds()
         return max(math.ceil(segundos / 86400), 0)
 
-    # ATENCIÓN AQUÍ: He dejado esta función intacta para no romper tus comandos,
-    # pero ten en cuenta que al usar Cloudinary, si llamas a `self.video.delete()`
-    # a través de django-cloudinary-storage, debería intentar borrarlo de la nube.
-    # Es recomendable leer la documentación sobre cómo maneja los borrados.
     def eliminar_archivo_fisico(self):
         """
         Borra el archivo de Cloudinary conservando el registro para trazabilidad.
         Se usa tanto al vencer los 30 días como al eliminar por orden médica.
+
+        No sirve `self.video.delete(save=False)` como cuando esto era un
+        FileField: el valor de un CloudinaryField es un CloudinaryResource, que
+        no tiene ese método y lanza AttributeError. Con eso, el comando
+        limpiar_videos_vencidos se caía y los videos clínicos se habrían
+        quedado en la nube pasados los 30 días.
         """
         if self.video:
-            # Cloudinary maneja el delete internamente a través del storage default
-            self.video.delete(save=False)
+            borrar_de_cloudinary(self.video)
 
     def __str__(self):
         return f'Video #{self.id_video} de {self.cliente} ({self.duracion_segundos}s)'
