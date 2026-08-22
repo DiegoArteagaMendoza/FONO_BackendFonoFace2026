@@ -174,6 +174,15 @@ if os.environ.get('DATABASE_URL'):
         'default': dj_database_url.parse(
             os.environ['DATABASE_URL'],
             conn_max_age=600,
+            # Sin esto, Django reutiliza durante 10 minutos una conexion que el
+            # MySQL remoto pudo cerrar antes por inactividad (su wait_timeout es
+            # menor), y la peticion muere con
+            # "(2006, 'MySQL server has gone away')". Pasa sobre todo en la
+            # primera visita despues de un rato sin trafico.
+            # conn_health_checks hace que Django compruebe que la conexion sigue
+            # viva antes de reutilizarla, y la reabra si no; se conserva el
+            # pooling sin arrastrar conexiones muertas.
+            conn_health_checks=True,
             ssl_require=env_bool('DATABASE_SSL_REQUIRE', not DEBUG),
         )
     }
