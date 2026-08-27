@@ -176,3 +176,61 @@ class PmCitaReservarBloqueSerializer(serializers.Serializer):
     )
     motivo_consulta = serializers.CharField(required=False, allow_blank=True, default='')
     paciente = PmCitaPacienteInvitadoSerializer(required=False)
+
+
+# ==========================================================================
+# SEGUIMIENTO POR CÓDIGO (gestión sin cuenta)
+# ==========================================================================
+
+class PmCitaSeguimientoSerializer(serializers.ModelSerializer):
+    """
+    Lo que ve quien consulta su hora con el código, sin haber iniciado sesión.
+
+    A diferencia de PmCitaSerializer, aquí se entregan los datos legibles que
+    necesita la pantalla (nombre del profesional, del paciente) y se omiten los
+    identificadores internos: quien llega con un código no tiene por qué recibir
+    los ids de la base, y así el listado no sirve para sondear otras fichas.
+    """
+    profesional_nombre = serializers.SerializerMethodField()
+    paciente_nombre = serializers.SerializerMethodField()
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    esta_activa = serializers.BooleanField(read_only=True)
+    ya_paso = serializers.BooleanField(read_only=True)
+    permite_cambios = serializers.SerializerMethodField()
+    reprogramaciones_restantes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PmCita
+        fields = [
+            'codigo_seguimiento', 'fecha_hora', 'duracion_minutos', 'motivo_consulta',
+            'estado', 'estado_display', 'profesional_nombre', 'paciente_nombre',
+            'motivo_cancelacion', 'fecha_hora_original', 'veces_reprogramada',
+            'esta_activa', 'ya_paso', 'permite_cambios', 'reprogramaciones_restantes',
+            'permite_carga_video',
+        ]
+        read_only_fields = fields
+
+    def get_profesional_nombre(self, cita):
+        return f'{cita.profesional.nombres_profesional} {cita.profesional.apellidos_profesional}'
+
+    def get_paciente_nombre(self, cita):
+        return f'{cita.cliente.nombres_cliente} {cita.cliente.apellidos_clientes}'
+
+    def get_permite_cambios(self, cita):
+        return cita.permite_cambios()
+
+    def get_reprogramaciones_restantes(self, cita):
+        from PmCita.models import REPROGRAMACIONES_MAXIMAS
+
+        return max(0, REPROGRAMACIONES_MAXIMAS - cita.veces_reprogramada)
+
+
+class PmCitaSeguimientoCancelarSerializer(serializers.Serializer):
+    """Body al cancelar desde el seguimiento."""
+    motivo = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class PmCitaSeguimientoPosponerSerializer(serializers.Serializer):
+    """Body al reprogramar desde el seguimiento."""
+    fecha_hora = serializers.DateTimeField()
+    motivo = serializers.CharField(required=False, allow_blank=True, default='')

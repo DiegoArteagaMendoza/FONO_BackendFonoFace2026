@@ -174,6 +174,13 @@ class PM_AcreditacionQueryset(models.QuerySet):
                 return None, 'El profesional no ha informado su número de registro de salud.'
             if not profesional.documentos.filter(documento_profesional_valido=True).exists():
                 return None, 'El profesional no cuenta con al menos un documento validado.'
+            # Elegir especialidades es el paso 3 del proceso que se le muestra al
+            # profesional (ver pasos-acreditacion en el frontend), pero no se
+            # estaba exigiendo aquí. Sin especialidades, el profesional queda
+            # aprobado y reservable, pero invisible para cualquier paciente que
+            # filtre por especialidad al buscar hora.
+            if not profesional.especialidades.exists():
+                return None, 'El profesional no ha declarado ninguna especialidad.'
 
         acreditacion.estado_verificacion_profesional = nuevo_estado
         acreditacion.fecha_resolucion_profesional = timezone.localdate()

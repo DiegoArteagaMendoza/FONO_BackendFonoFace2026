@@ -314,3 +314,28 @@ SIMPLE_JWT = {
 
 # Tamaño máximo de archivo aceptado para los documentos de respaldo (en MB).
 PM_MEDICO_DOCUMENTO_MAX_MB = int(os.environ.get('PM_MEDICO_DOCUMENTO_MAX_MB', 5))
+
+# ---------------------------------------------------------------------------
+# CORREO
+# ---------------------------------------------------------------------------
+# Se usa para avisar al paciente de su cita y enviarle el código de seguimiento
+# (ver PmCita/correos.py). En desarrollo, si no se define EMAIL_HOST, los
+# correos se imprimen en la consola en vez de enviarse: así el flujo completo se
+# puede probar sin un servidor SMTP, y nadie manda correos de prueba a
+# direcciones reales por accidente.
+if os.environ.get('EMAIL_HOST'):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ['EMAIL_HOST']
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+    EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'FonoFace UBB <no-responder@vocare-ubb.cl>')
+
+# Base pública del frontend, para armar el enlace de seguimiento del correo.
+# Sin esto el correo llevaría a localhost en producción.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:4200').rstrip('/')

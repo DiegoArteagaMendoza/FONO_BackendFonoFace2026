@@ -8,6 +8,7 @@ from Security.permissions import EsAdministrador, EsCliente, EsProfesional
 from PmMedico.models import Administrador, PM_Profesional
 from PmCliente.models import PmCliente
 from PmCita.models import PmCita, PmDisponibilidad
+from PmCita.correos import enviar_confirmacion_reserva
 from PmCita.serializer import (
     PmCitaSerializer,
     PmCitaReservarBloqueSerializer,
@@ -18,6 +19,9 @@ from PmCita.serializer import (
     PmDisponibilidadSerializer,
     PmDisponibilidadPublicaSerializer,
     PmDisponibilidadPublicarSerializer,
+    PmCitaSeguimientoSerializer,
+    PmCitaSeguimientoCancelarSerializer,
+    PmCitaSeguimientoPosponerSerializer,
 )
 
 
@@ -94,10 +98,17 @@ def cita_reservar(request):
         detalle = error.message_dict if hasattr(error, 'message_dict') else error.messages
         return Response({'error': detalle}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Confirmación con el código de seguimiento. No corta la reserva si falla:
+    # ver enviar_confirmacion_reserva. El código viaja igualmente en la
+    # respuesta, así que el frontend puede mostrarlo aunque el correo no salga.
+    correo_enviado = enviar_confirmacion_reserva(cita)
+
     respuesta = PmCitaSerializer(cita).data
     # El frontend necesita saber a qué ficha quedó ligada la cita para poder
     # asociarle después un video, cosa que quien reservó sin sesión no sabría.
     respuesta['reservada_sin_sesion'] = not isinstance(request.user, PmCliente)
+    respuesta['codigo_seguimiento'] = cita.codigo_seguimiento
+    respuesta['correo_enviado'] = correo_enviado
 
     return Response(respuesta, status=status.HTTP_201_CREATED)
 
@@ -361,3 +372,64 @@ def disponibilidad_de_profesional(request, id_profesional):
     """
     bloques = PmDisponibilidad.objects.disponibles_de_profesional(id_profesional)
     return Response(PmDisponibilidadPublicaSerializer(bloques, many=True).data)
+
+
+# ==========================================================================
+# SEGUIMIENTO POR CÓDIGO
+# --------------------------------------------------------------------------
+# Quien reservó sin cuenta no tiene sesión con la que identificarse, así que el
+# código que recibió por correo hace de credencial. De ahí que estos endpoints
+# sean públicos: el código ES la autorización.
+#
+# Por eso importa que sea impredecible (ver generar_codigo_seguimiento, que usa
+# secrets sobre un alfabeto de 31 símbolos) y que la respuesta no exponga ids
+# internos ni datos que no sean de esa cita.
+#
+# Pendiente para producción: limitar los intentos por IP. Sin eso, nada impide
+# probar códigos en masa, aunque el espacio de búsqueda lo haga poco práctico.
+# ==========================================================================
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def cita_seguimiento(request, codigo):
+    """Detalle de una cita a partir de su código de seguimiento."""
+    cita = PmCita.objects.por_codigo(codigo)
+    if not cita:
+        return Response(
+            {'error': 'No encontramos ninguna hora con ese código. Revísalo e inténtalo de nuevo.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(PmCitaSeguimientoSerializer(cita).data)
+
+
+@api_view(['PATCH'])
+@permission_classes([AllowAny])
+def cita_seguimiento_cancelar(request, codigo):
+    """Cancela la cita desde el seguimiento (cuenta como cancelación del paciente)."""
+    entrada = PmCitaSeguimientoCancelarSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+
+    cita, error = PmCita.objects.cancelar_por_codigo(codigo, entrada.validated_data.get('motivo'))
+    if error:
+        return _respuesta_error(error)
+
+    return Response(PmCitaSeguimientoSerializer(cita).data)
+
+
+@api_view(['PATCH'])
+@permission_classes([AllowAny])
+def cita_seguimiento_posponer(request, codigo):
+    """Reprograma la cita desde el seguimiento."""
+    entrada = PmCitaSeguimientoPosponerSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+
+    cita, error = PmCita.objects.posponer_por_codigo(
+        codigo,
+        entrada.validated_data['fecha_hora'],
+        entrada.validated_data.get('motivo'),
+    )
+    if error:
+        return _respuesta_error(error)
+
+    return Response(PmCitaSeguimientoSerializer(cita).data)
