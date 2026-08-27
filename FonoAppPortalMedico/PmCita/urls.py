@@ -121,4 +121,31 @@ urlpatterns = [
         views.disponibilidad_de_profesional,
         name='disponibilidad-de-profesional',
     ),
+
+    # =====================================================================
+    # SEGUIMIENTO POR CÓDIGO
+    # Para quien reservó sin cuenta: el código que recibió por correo hace de
+    # credencial, por eso son públicas. Ver la nota en views.py.
+    # =====================================================================
+
+    # MÉTODO: GET | URL: /api/pm/citas/seguimiento/<codigo>/
+    # Acceso: público (el código es la autorización).
+    # RESPUESTA: detalle legible de la cita, sin ids internos. 404 si no existe.
+    path('seguimiento/<str:codigo>/', views.cita_seguimiento, name='cita-seguimiento'),
+
+    # MÉTODO: PATCH | URL: /api/pm/citas/seguimiento/<codigo>/cancelar/
+    # BODY: {"motivo" (opcional)} | Cuenta como cancelación del cliente ("CC").
+    path(
+        'seguimiento/<str:codigo>/cancelar/',
+        views.cita_seguimiento_cancelar,
+        name='cita-seguimiento-cancelar',
+    ),
+
+    # MÉTODO: PATCH | URL: /api/pm/citas/seguimiento/<codigo>/posponer/
+    # BODY: {"fecha_hora" (nueva, ISO 8601), "motivo" (opcional)}
+    path(
+        'seguimiento/<str:codigo>/posponer/',
+        views.cita_seguimiento_posponer,
+        name='cita-seguimiento-posponer',
+    ),
 ]

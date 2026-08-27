@@ -203,6 +203,37 @@ class PmCita_Queryset(models.QuerySet):
         return self._reprogramar(cita, nueva_fecha_hora, self.model.Origen.PROFESIONAL, motivo)
 
     # ----------------------------------------------------------------
+    # Gestión por código de seguimiento (sin cuenta)
+    # ----------------------------------------------------------------
+
+    def por_codigo(self, codigo):
+        """
+        Busca una cita por su código de seguimiento.
+
+        La comparación ignora mayúsculas y espacios porque el código se teclea
+        desde un correo, y nadie debería fallar por copiarlo con un espacio al
+        final o en minúsculas.
+        """
+        codigo = (codigo or '').strip().replace(' ', '').upper()
+        if not codigo:
+            return None
+        return self.filter(codigo_seguimiento__iexact=codigo).first()
+
+    def cancelar_por_codigo(self, codigo, motivo=None):
+        """Cancela desde el seguimiento; cuenta como cancelación del cliente."""
+        cita = self.por_codigo(codigo)
+        if not cita:
+            return None, 'Cita no encontrada.'
+        return self._cancelar(cita, self.model.Origen.CLIENTE, motivo)
+
+    def posponer_por_codigo(self, codigo, nueva_fecha_hora, motivo=None):
+        """Reprograma desde el seguimiento; cuenta como cambio del cliente."""
+        cita = self.por_codigo(codigo)
+        if not cita:
+            return None, 'Cita no encontrada.'
+        return self._reprogramar(cita, nueva_fecha_hora, self.model.Origen.CLIENTE, motivo)
+
+    # ----------------------------------------------------------------
     # Atención
     # ----------------------------------------------------------------
 

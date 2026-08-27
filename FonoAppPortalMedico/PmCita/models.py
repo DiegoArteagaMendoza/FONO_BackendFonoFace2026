@@ -27,6 +27,30 @@ HORAS_MINIMAS_ANTICIPACION = 2
 # reservar una nueva (evita que una misma cita se arrastre indefinidamente).
 REPROGRAMACIONES_MAXIMAS = 3
 
+# Código de seguimiento que se envía por correo al reservar. Es la única forma
+# que tiene de gestionar su hora quien reservó sin cuenta, así que funciona como
+# credencial: debe ser imposible de adivinar probando.
+#
+# El alfabeto excluye 0/O y 1/I/L, que se confunden al leerlos de un correo y
+# teclearlos. Con 8 caracteres sobre 31 símbolos hay ~8.5·10^11 combinaciones.
+LONGITUD_CODIGO_SEGUIMIENTO = 8
+ALFABETO_CODIGO_SEGUIMIENTO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+
+def generar_codigo_seguimiento():
+    """
+    Código aleatorio para el seguimiento de una cita.
+
+    Usa secrets y no random: random es predecible a partir de valores previos, y
+    aquí el código da acceso a los datos de una cita.
+    """
+    import secrets
+
+    return ''.join(
+        secrets.choice(ALFABETO_CODIGO_SEGUIMIENTO)
+        for _ in range(LONGITUD_CODIGO_SEGUIMIENTO)
+    )
+
 
 class PmCita(models.Model):
     """
@@ -65,6 +89,16 @@ class PmCita(models.Model):
         verbose_name='Profesional que atiende',
     )
 
+    # Código que se envía por correo al reservar. Lo tienen todas las citas, no
+    # solo las de invitados: así el correo de confirmación es el mismo para
+    # todos y quien tiene cuenta también puede consultar su hora sin entrar.
+    codigo_seguimiento = models.CharField(
+        max_length=LONGITUD_CODIGO_SEGUIMIENTO,
+        unique=True,
+        editable=False,
+        verbose_name='Código de seguimiento',
+    )
+
     fecha_hora = models.DateTimeField(verbose_name='Fecha y hora agendada')
     duracion_minutos = models.PositiveIntegerField(default=DURACION_MINUTOS_DEFECTO)
     motivo_consulta = models.TextField(blank=True, null=True, verbose_name='Motivo de la consulta')
@@ -101,6 +135,26 @@ class PmCita(models.Model):
         verbose_name = 'Cita médica'
         verbose_name_plural = 'Citas médicas'
         ordering = ['-fecha_hora']
+
+    def save(self, *args, **kwargs):
+        # El código se asigna una sola vez, al crear: si cambiara, el enlace del
+        # correo que ya recibió la persona dejaría de servir.
+        if not self.codigo_seguimiento:
+            self.codigo_seguimiento = self._codigo_unico()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def _codigo_unico(cls, intentos=8):
+        """
+        Código libre. La probabilidad de choque es ínfima, pero comprobarlo sale
+        gratis y una colisión rompería el guardado con un error de unicidad que
+        nadie sabría interpretar.
+        """
+        for _ in range(intentos):
+            codigo = generar_codigo_seguimiento()
+            if not cls.objects.filter(codigo_seguimiento=codigo).exists():
+                return codigo
+        raise RuntimeError('No se pudo generar un código de seguimiento único.')
 
     def __str__(self):
         return f'Cita #{self.id_cita} - {self.cliente} con {self.profesional} ({self.get_estado_display()})'
