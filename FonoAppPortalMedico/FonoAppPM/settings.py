@@ -302,6 +302,13 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Solo se aplica donde la vista lo pide con @throttle_classes; no hay
+    # límite por defecto para el resto.
+    'DEFAULT_THROTTLE_RATES': {
+        # Subida de video con el código de seguimiento (PmVideo/views.py).
+        # Es el único endpoint anónimo que recibe archivos pesados.
+        'pm_video_subida_codigo': os.environ.get('PM_VIDEO_SUBIDA_POR_CODIGO', '10/hour'),
+    },
 }
 
 # JWT config (debe coincidir con la de FonoApp para que los tokens de administrador
