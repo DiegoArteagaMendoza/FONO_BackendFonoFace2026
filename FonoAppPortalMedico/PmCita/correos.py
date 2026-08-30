@@ -63,7 +63,7 @@ Ten presente que los cambios y las cancelaciones deben hacerse con al menos
 Guarda este correo: el código es personal y es lo único que se necesita para
 gestionar tu hora.
 
-Portal Médico FonoFace — Universidad del Bío-Bío
+Portal Médico Vocare UBB — Universidad del Bío-Bío
 """
 
     try:

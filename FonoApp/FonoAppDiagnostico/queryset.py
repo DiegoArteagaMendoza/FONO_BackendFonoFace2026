@@ -66,6 +66,15 @@ class FonoApp_Diagnostico_Respuesta_Queryset(models.QuerySet):
         """Retorna los resultados registrados para un formulario, del más reciente al más antiguo."""
         return self.filter(formulario_id=id_formulario).select_related('formulario')
 
+    def obtener_por_id(self, id_respuesta):
+        """Retorna una respuesta ya registrada (con su formulario) por id, o None si no existe.
+
+        La usa el envío del resultado por correo (ver views.respuesta_enviar_correo): el
+        puntaje y la interpretación ya quedaron calculados y guardados al responder el test,
+        así que no se vuelven a calcular, solo se leen para armar el cuerpo del correo.
+        """
+        return self.filter(id_respuesta=id_respuesta).select_related('formulario').first()
+
     def registrar_respuesta(self, usuario, detalles_data, formulario, **datos_respuesta):
         """Registra la aplicación de un test a un paciente y calcula su puntaje.
 

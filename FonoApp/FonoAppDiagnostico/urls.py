@@ -125,6 +125,22 @@ urlpatterns = [
     path('respuestas/crear/', views.respuesta_crear, name='diagnostico-respuesta-crear'),
 
     # -------------------------------------------------------------------------
+    # MÉTODO: POST
+    # URL: /api/diagnostico/respuestas/1/enviar-correo/  <-- Reemplazar '1' por el id_respuesta
+    # HEADERS: Ninguno (Acceso público)
+    # BODY (JSON): { "correo": "paciente@correo.com" }
+    # RESPUESTA ESPERADA (JSON): { "correo_enviado": true }
+    # USO: Envía por correo el resultado ya calculado de una respuesta (ver respuestas/crear/
+    #      arriba), al correo que el paciente escribe recién al ver su resultado. El correo
+    #      NO se guarda en ningún lado, solo se usa para este envío.
+    # -------------------------------------------------------------------------
+    path(
+        'respuestas/<int:id_respuesta>/enviar-correo/',
+        views.respuesta_enviar_correo,
+        name='diagnostico-respuesta-enviar-correo',
+    ),
+
+    # -------------------------------------------------------------------------
     # MÉTODO: GET
     # URL: /api/diagnostico/respuestas/formulario/1/  <-- Reemplazar '1' por el id_formulario
     # HEADERS: { "Authorization": "Bearer <tu_access_token>" }

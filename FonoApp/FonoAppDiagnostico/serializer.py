@@ -215,3 +215,12 @@ class FonoApp_Diagnostico_RespuestaListadoSerializer(serializers.ModelSerializer
             'id_respuesta', 'formulario', 'paciente_nombre', 'paciente_fecha_nacimiento',
             'fecha_diligenciamiento', 'puntaje_total', 'interpretacion_total', 'detalle_subescalas',
         ]
+
+
+class FonoApp_Diagnostico_EnviarCorreoSerializer(serializers.Serializer):
+    """Solo valida el formato del correo que el paciente escribe al ver su resultado.
+
+    No es un ModelSerializer a propósito: el correo no se guarda en ningún modelo,
+    solo se usa para el envío en curso (ver FonoAppDiagnostico/correos.py).
+    """
+    correo = serializers.EmailField()

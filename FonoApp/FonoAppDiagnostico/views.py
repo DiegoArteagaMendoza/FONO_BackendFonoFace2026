@@ -8,7 +8,9 @@ from FonoAppDiagnostico.serializer import (
     FonoApp_Diagnostico_FormularioSerializer,
     FonoApp_Diagnostico_RespuestaSerializer,
     FonoApp_Diagnostico_RespuestaListadoSerializer,
+    FonoApp_Diagnostico_EnviarCorreoSerializer,
 )
+from FonoAppDiagnostico.correos import enviar_resultado_diagnostico
 from FonoAppFunciones.authentication import CustomJWTAuthentication
 
 
@@ -120,6 +122,30 @@ def respuesta_crear(request):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@authentication_classes([CustomJWTAuthentication])
+@permission_classes([AllowAny])
+def respuesta_enviar_correo(request, id_respuesta):
+    """Envía por correo el resultado ya calculado de una respuesta, al correo que
+    el propio paciente escribe al terminar el test.
+
+    Acceso público, igual que respuesta_crear: quien responde el test no tiene
+    cuenta propia. El correo recibido NO se guarda en ningún modelo, solo se usa
+    para este envío (ver FonoAppDiagnostico/correos.py); por eso la respuesta no
+    devuelve más que si el envío se pudo hacer o no, igual que hace PmCita al
+    confirmar una reserva.
+    """
+    entrada = FonoApp_Diagnostico_EnviarCorreoSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+
+    respuesta = FonoApp_Diagnostico_Respuesta.objects.obtener_por_id(id_respuesta)
+    if not respuesta:
+        return Response({'error': 'Resultado no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    correo_enviado = enviar_resultado_diagnostico(respuesta, entrada.validated_data['correo'])
+    return Response({'correo_enviado': correo_enviado}, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])

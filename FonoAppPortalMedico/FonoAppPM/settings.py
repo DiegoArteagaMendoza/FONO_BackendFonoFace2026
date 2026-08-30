@@ -341,7 +341,7 @@ if os.environ.get('EMAIL_HOST'):
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'FonoFace UBB <no-responder@vocare-ubb.cl>')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Vocare UBB <no-responder@vocare-ubb.cl>')
 
 # Base pública del frontend, para armar el enlace de seguimiento del correo.
 # Sin esto el correo llevaría a localhost en producción.
