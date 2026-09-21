@@ -3,10 +3,16 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status
 
-from Security.permissions import EsProfesional
+from Security.permissions import EsProfesional, EsCliente
 from Security.archivos import guardar_o_400, borrar_de_cloudinary
-from PmTerapia.models import PmEjercicio
-from PmTerapia.serializer import PmEjercicioSerializer, PmEjercicioEditarSerializer
+from PmCita.models import PmCita
+from PmTerapia.models import PmEjercicio, PmPlanTerapia
+from PmTerapia.serializer import (
+    PmEjercicioSerializer,
+    PmEjercicioEditarSerializer,
+    PmPlanTerapiaSerializer,
+    PmPlanTerapiaEntradaSerializer,
+)
 
 
 # ==========================================================================
@@ -100,3 +106,162 @@ def ejercicio_eliminar(request, id_ejercicio):
 
     PmEjercicio.objects.eliminar(ejercicio)
     return Response({'mensaje': 'Ejercicio eliminado del catálogo'}, status=status.HTTP_200_OK)
+
+
+# ==========================================================================
+# PLAN DE TERAPIA (lado del fonoaudiólogo)
+# --------------------------------------------------------------------------
+# Un plan se crea desde una cita realizada y pertenece al par paciente–fono.
+# Todo lo que cambia datos pasa por el queryset, que devuelve (plan, error);
+# aquí solo se traduce a una respuesta. Un plan ajeno responde 404, no 403.
+# ==========================================================================
+
+def _plan_no_encontrado():
+    return Response({'error': 'El plan no existe o no es tuyo.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+def _error_400(texto):
+    return Response({'error': texto}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([EsProfesional])
+def plan_crear(request):
+    """
+    Crea el plan de un paciente a partir de una cita realizada.
+    Cuerpo: id_cita, periodicidad, indicaciones (opcional), ejercicios (1 a 3).
+    """
+    entrada = PmPlanTerapiaEntradaSerializer(data=request.data, context={'profesional': request.user})
+    if not entrada.is_valid():
+        return Response(entrada.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    datos = entrada.validated_data
+    faltan = [campo for campo in ('id_cita', 'periodicidad', 'ejercicios') if campo not in datos]
+    if faltan:
+        return _error_400(f'Faltan datos: {", ".join(faltan)}.')
+
+    cita = PmCita.objects.select_related('cliente').filter(pk=datos['id_cita']).first()
+    if not cita:
+        return Response({'error': 'La cita no existe.'}, status=status.HTTP_404_NOT_FOUND)
+
+    plan, error = PmPlanTerapia.objects.crear(
+        profesional=request.user,
+        cita=cita,
+        ejercicios=datos['ejercicios'],
+        periodicidad=datos['periodicidad'],
+        indicaciones=datos.get('indicaciones', ''),
+    )
+    if error:
+        return _error_400(error)
+
+    return Response(PmPlanTerapiaSerializer(plan).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([EsProfesional])
+def planes_listar(request):
+    """
+    Los planes del fonoaudiólogo. Por defecto solo los activos; con
+    ?todos=true incluye los cerrados.
+    """
+    planes = PmPlanTerapia.objects.de_profesional(request.user.pk)
+    if request.query_params.get('todos') != 'true':
+        planes = planes.activos()
+    return Response(PmPlanTerapiaSerializer(planes, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([EsProfesional])
+def plan_detalle(request, id_plan):
+    plan = PmPlanTerapia.objects.propio_de_profesional(id_plan, request.user.pk)
+    if not plan:
+        return _plan_no_encontrado()
+    return Response(PmPlanTerapiaSerializer(plan).data, status=status.HTTP_200_OK)
+
+
+@api_view(['PATCH'])
+@permission_classes([EsProfesional])
+def plan_ajustar(request, id_plan):
+    """
+    Cambia ejercicios, periodicidad o indicaciones. Todos opcionales; lo que
+    no viene se deja como está. Cambiar la periodicidad reinicia el plan a hoy.
+    """
+    plan = PmPlanTerapia.objects.propio_de_profesional(id_plan, request.user.pk)
+    if not plan:
+        return _plan_no_encontrado()
+
+    entrada = PmPlanTerapiaEntradaSerializer(data=request.data, context={'profesional': request.user})
+    if not entrada.is_valid():
+        return Response(entrada.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    datos = entrada.validated_data
+    plan, error = PmPlanTerapia.objects.ajustar(
+        plan,
+        ejercicios=datos.get('ejercicios'),
+        periodicidad=datos.get('periodicidad'),
+        indicaciones=datos.get('indicaciones'),
+    )
+    if error:
+        return _error_400(error)
+
+    return Response(PmPlanTerapiaSerializer(plan).data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([EsProfesional])
+def plan_cerrar(request, id_plan):
+    plan = PmPlanTerapia.objects.propio_de_profesional(id_plan, request.user.pk)
+    if not plan:
+        return _plan_no_encontrado()
+
+    plan, error = PmPlanTerapia.objects.cerrar(plan)
+    if error:
+        return _error_400(error)
+
+    return Response(PmPlanTerapiaSerializer(plan).data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([EsProfesional])
+def plan_de_cita(request, id_cita):
+    """
+    El plan activo del paciente de esa cita con este fonoaudiólogo, si lo hay.
+    La agenda lo usa para decidir si ofrece "Asignar plan" o "Ajustar plan".
+
+    Responde siempre { "plan": ... }: con el plan, o con null cuando no hay.
+    No es un error, es la respuesta. Acompaña el nombre del paciente y si tiene
+    cuenta, para que el formulario pueda explicar por qué no se podrá asignar
+    antes de que el fonoaudiólogo llene todo. (Un Response(None) suelto no manda 'null':
+    DRF lo convierte en un cuerpo vacío sin Content-Type y el cliente no puede
+    parsearlo.)
+    """
+    cita = PmCita.objects.select_related('cliente').filter(pk=id_cita, profesional_id=request.user.pk).first()
+    if not cita:
+        return Response({'error': 'La cita no existe o no es tuya.'}, status=status.HTTP_404_NOT_FOUND)
+
+    plan = PmPlanTerapia.objects.activo_del_par(cita.cliente_id, request.user.pk)
+    return Response(
+        {
+            'plan': PmPlanTerapiaSerializer(plan).data if plan else None,
+            # Cuando no hay plan, el formulario igual necesita saber a quién se
+            # lo va a asignar y si podrá (sin cuenta, el backend lo rechaza).
+            'paciente_nombre': f'{cita.cliente.nombres_cliente} {cita.cliente.apellidos_clientes}',
+            'paciente_tiene_cuenta': bool(cita.cliente.password_cliente),
+            'cita_realizada': cita.estado == PmCita.Estado.REALIZADA,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+# ==========================================================================
+# PLAN DE TERAPIA (lado del paciente)
+# --------------------------------------------------------------------------
+# Solo lectura en esta entrega: sus planes activos con los ejercicios, el
+# video de ejemplo y el periodo actual. La subida de videos llega después.
+# ==========================================================================
+
+@api_view(['GET'])
+@permission_classes([EsCliente])
+def mis_planes(request):
+    planes = PmPlanTerapia.objects.de_cliente(request.user.pk).activos()
+    return Response(PmPlanTerapiaSerializer(planes, many=True).data, status=status.HTTP_200_OK)

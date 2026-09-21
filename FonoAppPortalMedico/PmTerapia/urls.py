@@ -53,4 +53,81 @@ urlpatterns = [
     # RESPUESTA ESPERADA: { "mensaje": "Ejercicio eliminado del catálogo" }
     # -------------------------------------------------------------------------
     path('ejercicios/<int:id_ejercicio>/eliminar/', views.ejercicio_eliminar, name='ejercicio-eliminar'),
+
+    # =========================================================================
+    # PLAN DE TERAPIA — lado del fonoaudiólogo
+    # Un plan por par paciente–fono, activo a la vez. Todo con el token del
+    # profesional; un plan ajeno responde 404.
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST | URL: /api/pm/terapia/planes/crear/
+    # BODY (JSON):
+    #   {
+    #     "id_cita": 12,                      // una cita REALIZADA (estado RZ) del profesional
+    #     "periodicidad": "SEMANAL",          // DIARIA | SEMANAL | QUINCENAL
+    #     "indicaciones": "Texto general",    // opcional
+    #     "ejercicios": [                     // de 1 a 3, del catálogo del profesional
+    #       { "id_ejercicio": 4, "indicaciones": "3 veces al día" },
+    #       { "id_ejercicio": 7 }
+    #     ]
+    #   }
+    # ERRORES 400: cita no realizada, cita ajena, paciente sin cuenta (reservó
+    #   como invitado), plan activo previo con ese paciente, ejercicios ajenos
+    #   o repetidos, más de 3.
+    # RESPUESTA ESPERADA: El plan creado (Status 201), con los ejercicios
+    #   incrustados y 'periodo_actual' { numero, desde, hasta } en hora de Chile.
+    # -------------------------------------------------------------------------
+    path('planes/crear/', views.plan_crear, name='plan-crear'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/planes/            (activos)
+    #                    /api/pm/terapia/planes/?todos=true (incluye cerrados)
+    # RESPUESTA: Arreglo de planes del profesional, con 'paciente_nombre'.
+    # -------------------------------------------------------------------------
+    path('planes/', views.planes_listar, name='planes-listar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/planes/5/
+    # -------------------------------------------------------------------------
+    path('planes/<int:id_plan>/', views.plan_detalle, name='plan-detalle'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: PATCH | URL: /api/pm/terapia/planes/5/ajustar/
+    # BODY (JSON): mismos campos que crear, todos opcionales, sin id_cita.
+    #   Lo que no viene no cambia. OJO: cambiar 'periodicidad' reinicia el plan
+    #   a hoy (fecha_inicio) y el contador de recordatorios.
+    #   Los ejercicios que salen se desactivan, no se borran: conservan sus
+    #   videos anteriores.
+    # -------------------------------------------------------------------------
+    path('planes/<int:id_plan>/ajustar/', views.plan_ajustar, name='plan-ajustar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST | URL: /api/pm/terapia/planes/5/cerrar/
+    # BODY: Ninguno. El plan pasa a CERRADO; queda como historial.
+    # -------------------------------------------------------------------------
+    path('planes/<int:id_plan>/cerrar/', views.plan_cerrar, name='plan-cerrar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/planes/de-cita/12/
+    # El plan ACTIVO del paciente de esa cita con este profesional. La agenda
+    # lo usa para mostrar "Asignar plan" o "Ajustar plan".
+    # RESPUESTA (Status 200):
+    #   { "plan": <el plan> | null, "paciente_nombre": "...",
+    #     "paciente_tiene_cuenta": true|false, "cita_realizada": true|false }
+    #   404 si la cita no es suya.
+    # -------------------------------------------------------------------------
+    path('planes/de-cita/<int:id_cita>/', views.plan_de_cita, name='plan-de-cita'),
+
+    # =========================================================================
+    # PLAN DE TERAPIA — lado del paciente
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/mis-planes/
+    # HEADERS: { "Authorization": "Bearer <token del paciente>" }
+    # RESPUESTA: Sus planes activos, con 'profesional_nombre', los ejercicios
+    #   (nombre, instrucciones, video de ejemplo) y 'periodo_actual'.
+    # -------------------------------------------------------------------------
+    path('mis-planes/', views.mis_planes, name='mis-planes'),
 ]
