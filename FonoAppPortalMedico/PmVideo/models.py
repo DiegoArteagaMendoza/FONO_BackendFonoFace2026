@@ -26,8 +26,9 @@ DIAS_VIGENCIA = 30
 # rondan los 15-40 MB según la calidad, por eso se deja en 50 MB.
 TAMANO_MAXIMO_MB = 50
 
-# Formatos aceptados
-EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
+# Formatos aceptados: los mismos para todo video del portal, definidos una vez
+# en Security/validacion_video.py. Se reexportan aquí para quien ya los importaba.
+from Security.validacion_video import EXTENSIONES_PERMITIDAS  # noqa: E402,F401
 
 
 class PmVideo(models.Model):

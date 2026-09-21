@@ -1,12 +1,8 @@
 from rest_framework import serializers
 
 from Security.archivos import url_absoluta
-from PmVideo.models import (
-    PmVideo,
-    DURACION_MAXIMA_SEGUNDOS,
-    TAMANO_MAXIMO_MB,
-    EXTENSIONES_PERMITIDAS,
-)
+from Security.validacion_video import validar_archivo, validar_duracion
+from PmVideo.models import PmVideo, DURACION_MAXIMA_SEGUNDOS, TAMANO_MAXIMO_MB
 
 
 class PmVideoSerializer(serializers.ModelSerializer):
@@ -82,37 +78,13 @@ class PmVideoSerializer(serializers.ModelSerializer):
 
         return datos
 
+    # Las reglas del archivo viven en Security/validacion_video.py, compartidas
+    # con los videos de terapia; aquí solo se ponen los límites de este tipo.
     def validate_duracion_segundos(self, value):
-        """El video no puede superar los 30 segundos."""
-        if value <= 0:
-            raise serializers.ValidationError('La duración debe ser mayor a 0 segundos.')
-
-        if value > DURACION_MAXIMA_SEGUNDOS:
-            raise serializers.ValidationError(
-                f'El video no puede durar más de {DURACION_MAXIMA_SEGUNDOS} segundos '
-                f'(el enviado dura {value}).'
-            )
-        return value
+        return validar_duracion(value, DURACION_MAXIMA_SEGUNDOS)
 
     def validate_video(self, archivo):
-        """Valida el formato y el peso del archivo subido."""
-        nombre = archivo.name.lower()
-        extension = nombre.rsplit('.', 1)[-1] if '.' in nombre else ''
-
-        if extension not in EXTENSIONES_PERMITIDAS:
-            raise serializers.ValidationError(
-                f'Formato no permitido (.{extension}). '
-                f'Use uno de estos: {", ".join(EXTENSIONES_PERMITIDAS)}.'
-            )
-
-        tamano_maximo_bytes = TAMANO_MAXIMO_MB * 1024 * 1024
-        if archivo.size > tamano_maximo_bytes:
-            tamano_mb = archivo.size / (1024 * 1024)
-            raise serializers.ValidationError(
-                f'El video pesa {tamano_mb:.1f} MB y el máximo permitido es {TAMANO_MAXIMO_MB} MB.'
-            )
-
-        return archivo
+        return validar_archivo(archivo, TAMANO_MAXIMO_MB)
 
 
 class PmVideoSeguimientoSerializer(PmVideoSerializer):
