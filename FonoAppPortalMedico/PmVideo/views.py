@@ -10,39 +10,12 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework import status
 
-# Error base de Cloudinary: cubre BadRequest (archivo ilegible) y también los
-# fallos de red o de cuota, que tampoco deben salir como un 500 sin explicación.
-from cloudinary.exceptions import Error as CloudinaryError
-
 from Security.permissions import EsAdministrador, EsCliente, EsProfesional
+from Security.archivos import guardar_o_400
 from PmMedico.models import PM_Profesional
 from PmCita.models import PmCita
 from PmVideo.models import PmVideo
 from PmVideo.serializer import PmVideoSerializer, PmVideoSeguimientoSerializer
-
-
-def _guardar_video(serializer, **campos):
-    """
-    Guarda el video traduciendo el rechazo del proveedor en un 400.
-
-    El archivo no pasa por el almacenamiento de Django: CloudinaryField lo sube
-    con su propio SDK dentro de save(), y si Cloudinary lo rechaza —un .mp4 que
-    en realidad no es un video, un archivo truncado— lanza una excepción que sin
-    esto sale como error 500 y una página de Django en la cara del paciente.
-    El serializer valida extensión, peso y duración, pero no puede saber si el
-    contenido es realmente reproducible: eso solo lo dice el proveedor.
-
-    Devuelve la respuesta de error, o None si guardó bien.
-    """
-    try:
-        serializer.save(**campos)
-        return None
-    except CloudinaryError:
-        return Response(
-            {'video': 'No pudimos procesar el archivo. Asegúrate de que sea un video que se '
-                      'reproduzca correctamente e inténtalo de nuevo.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
 
 
 class SubidaPorCodigoThrottle(AnonRateThrottle):
@@ -78,7 +51,7 @@ def video_subir(request):
 
     if serializer.is_valid():
         # El dueño sale del token, ignorando cualquier 'cliente' que venga en el body
-        error = _guardar_video(serializer, cliente=request.user)
+        error = guardar_o_400(serializer, cliente=request.user)
         if error:
             return error
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -281,7 +254,7 @@ def video_seguimiento_subir(request, codigo):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    error = _guardar_video(serializer, cliente=cita.cliente, cita=cita)
+    error = guardar_o_400(serializer, cliente=cita.cliente, cita=cita)
     if error:
         return error
 

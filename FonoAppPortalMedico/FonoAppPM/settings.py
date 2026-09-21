@@ -75,6 +75,7 @@ DEV_APPS = [
     'PmCliente',
     'PmCita',
     'PmVideo',
+    'PmTerapia',
 ]
 
 FRAMEWORKS = [

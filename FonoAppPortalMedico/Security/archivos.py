@@ -58,3 +58,44 @@ def borrar_de_cloudinary(recurso):
     tipo = getattr(recurso, 'resource_type', None) or 'image'
     resultado = cloudinary.uploader.destroy(public_id, resource_type=tipo, invalidate=True)
     return resultado.get('result') in ('ok', 'not found')
+
+
+def guardar_o_400(serializer, **campos):
+    """
+    Guarda un serializer con CloudinaryField traduciendo el rechazo del
+    proveedor en un 400.
+
+    El archivo no pasa por el almacenamiento de Django: CloudinaryField lo sube
+    con su propio SDK dentro de save(), y si Cloudinary lo rechaza —un .mp4 que
+    en realidad no es un video, un archivo truncado— lanza una excepción que
+    sin esto sale como error 500 y una página de Django en la cara de quien
+    subió. El serializer valida extensión, peso y duración declarada, pero no
+    puede saber si el contenido es realmente reproducible: eso solo lo dice el
+    proveedor.
+
+    Vive aquí y no en una app porque lo necesitan todas las vistas que suben
+    video (síntomas, ejemplos de ejercicios, progreso de terapia).
+
+    Devuelve la Response de error, o None si guardó bien.
+    """
+    from django.db import transaction
+    from rest_framework import status
+    from rest_framework.response import Response
+    # Error base de Cloudinary: cubre BadRequest (archivo ilegible) y también
+    # los fallos de red o de cuota, que tampoco deben salir como 500 mudo.
+    from cloudinary.exceptions import Error as CloudinaryError
+
+    try:
+        # Savepoint: la subida falla a mitad del INSERT, y sin esto el fallo
+        # deja rota cualquier transacción que envuelva a la vista (una prueba,
+        # o ATOMIC_REQUESTS si algún día se activa). Con el savepoint se
+        # revierte solo este intento y lo de afuera sigue usable.
+        with transaction.atomic():
+            serializer.save(**campos)
+        return None
+    except CloudinaryError:
+        return Response(
+            {'video': 'No pudimos procesar el archivo. Asegúrate de que sea un video que se '
+                      'reproduzca correctamente e inténtalo de nuevo.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )

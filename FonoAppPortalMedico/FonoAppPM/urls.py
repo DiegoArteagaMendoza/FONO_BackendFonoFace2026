@@ -9,6 +9,7 @@ urlpatterns = [
     path('api/pm/clientes/', include('PmCliente.urls')),
     path('api/pm/citas/', include('PmCita.urls')),
     path('api/pm/videos/', include('PmVideo.urls')),
+    path('api/pm/terapia/', include('PmTerapia.urls')),
 ]
 
 # Esto sirve los archivos físicos solo cuando se esta en modo desarrollo (DEBUG=True)
