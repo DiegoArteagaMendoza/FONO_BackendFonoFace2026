@@ -347,9 +347,12 @@ esa base antes de aplicar el cambio en producción.
       desde cPanel → SSL/TLS Status si no se activó solo).
 - [ ] Carpetas `media/` de ambos proyectos con permisos de escritura para el usuario de la app
       (necesario para subir banners, imágenes, documentos de respaldo y videos).
-- [ ] Cron job de limpieza de videos vencidos activo — ver
-      [`deploy/scripts/crontab_limpiar_videos.txt`](deploy/scripts/crontab_limpiar_videos.txt) y
-      [`FonoAppPortalMedico/DOCUMENTACION.md` §10.2](FonoAppPortalMedico/DOCUMENTACION.md#102-lógica-de-vigencia-30-días).
+- [ ] Los dos cron jobs del Portal Médico activos (limpieza de videos vencidos y recordatorios de
+      terapia) — ver [`deploy/scripts/crontab_portalmedico.txt`](deploy/scripts/crontab_portalmedico.txt),
+      [`FonoAppPortalMedico/DOCUMENTACION.md` §10.2](FonoAppPortalMedico/DOCUMENTACION.md#102-lógica-de-vigencia-30-días)
+      y [§11.4](FonoAppPortalMedico/DOCUMENTACION.md#114-comandos-y-cron).
+- [ ] `EMAIL_HOST` (con usuario y clave) y `FRONTEND_URL` en el `.env` del Portal Médico: sin ellos, las
+      confirmaciones de citas y los recordatorios de terapia salen por consola y no le llegan a nadie.
 - [ ] Probar un flujo completo de punta a punta: login admin en `FonoApp` → usar ese token en
       `FonoAppPortalMedico` para listar profesionales pendientes de acreditación.
 

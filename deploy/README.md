@@ -22,7 +22,7 @@ deploy/
 │   └── env.production.portalmedico.mysql.example  # Igual, para FonoAppPortalMedico
 └── scripts/
     ├── migrar_postgres_a_mysql.md    # Procedimiento paso a paso para migrar datos existentes (si algún día hace falta)
-    └── crontab_limpiar_videos.txt    # Línea de cron para purgar videos vencidos de PmVideo en el hosting
+    └── crontab_portalmedico.txt      # Las dos líneas de cron del Portal Médico: purga de videos vencidos y recordatorios de terapia
 ```
 
 ## Orden sugerido de aplicación (cuando llegue el momento)
@@ -37,7 +37,9 @@ deploy/
      (luego cargarlas como variables de entorno en "Setup Python App", **no** subir el archivo con valores reales al repo).
 3. **Desplegar manualmente una vez en cPanel** ("Setup Python App" + subir código): ver `DOCUMENTACION_DESPLIEGUE.md` §4.
    Usar `deploy/cpanel/passenger_wsgi.*.example` como base para el `passenger_wsgi.py` de cada aplicación.
-4. **Activar el cron de limpieza de videos**: pegar `deploy/scripts/crontab_limpiar_videos.txt` en "Cron Jobs" de cPanel.
+4. **Activar los dos cron del Portal Médico** (limpieza de videos vencidos y recordatorios de terapia): pegar
+   las líneas de `deploy/scripts/crontab_portalmedico.txt` en "Cron Jobs" de cPanel, una tarea por línea.
+   Los recordatorios necesitan además `EMAIL_HOST` y `FRONTEND_URL` en el `.env` del Portal Médico.
 5. **Automatizar despliegues futuros con GitHub Actions**: copiar `deploy/github-actions/deploy.yml` a
    `.github/workflows/deploy.yml` (o `deploy-sftp.yml` si no hay SSH disponible), y cargar los secrets que pide
    el archivo en GitHub → Settings → Secrets and variables → Actions.
