@@ -6,12 +6,14 @@ from rest_framework import status
 from Security.permissions import EsProfesional, EsCliente
 from Security.archivos import guardar_o_400, borrar_de_cloudinary
 from PmCita.models import PmCita
-from PmTerapia.models import PmEjercicio, PmPlanTerapia
+from PmTerapia.models import PmEjercicio, PmPlanTerapia, PmVideoProgreso
 from PmTerapia.serializer import (
     PmEjercicioSerializer,
     PmEjercicioEditarSerializer,
     PmPlanTerapiaSerializer,
     PmPlanTerapiaEntradaSerializer,
+    PmVideoProgresoSerializer,
+    PmVideoProgresoSubirSerializer,
 )
 
 
@@ -265,3 +267,83 @@ def plan_de_cita(request, id_cita):
 def mis_planes(request):
     planes = PmPlanTerapia.objects.de_cliente(request.user.pk).activos()
     return Response(PmPlanTerapiaSerializer(planes, many=True).data, status=status.HTTP_200_OK)
+
+
+# ==========================================================================
+# VIDEOS DE PROGRESO (lado del paciente)
+# --------------------------------------------------------------------------
+# El paciente sube un video por ejercicio en cada periodo, ve su historial con
+# la retroalimentación y puede retirar uno propio. El dueño sale del token y el
+# plan se comprueba como suyo; el periodo lo calcula el servidor en hora de
+# Chile: nada de eso se acepta desde el cuerpo.
+# ==========================================================================
+
+def _mi_plan_o_404(request, id_plan):
+    plan = PmPlanTerapia.objects.propio_de_cliente(id_plan, request.user.pk)
+    if not plan:
+        return None, Response({'error': 'El plan no existe o no es tuyo.'}, status=status.HTTP_404_NOT_FOUND)
+    return plan, None
+
+
+@api_view(['POST'])
+@permission_classes([EsCliente])
+@parser_classes([MultiPartParser, FormParser])
+def mi_plan_video_subir(request, id_plan):
+    """
+    Sube un video de progreso (multipart/form-data): id_plan_ejercicio, video,
+    duracion_segundos y comentario opcional. Vive 7 días.
+    """
+    plan, error = _mi_plan_o_404(request, id_plan)
+    if error:
+        return error
+
+    entrada = PmVideoProgresoSubirSerializer(data=request.data)
+    if not entrada.is_valid():
+        return Response(entrada.errors, status=status.HTTP_400_BAD_REQUEST)
+    datos = entrada.validated_data
+
+    asignacion, periodo, error = PmVideoProgreso.objects.preparar_subida(plan, datos['id_plan_ejercicio'])
+    if error:
+        return _error_400(error)
+
+    video = PmVideoProgreso(
+        plan_ejercicio=asignacion,
+        video=datos['video'],
+        duracion_segundos=datos['duracion_segundos'],
+        comentario=datos.get('comentario', ''),
+        numero_periodo=periodo,
+    )
+
+    # El archivo se sube dentro de save(); si Cloudinary lo rechaza, 400.
+    error = guardar_o_400(video)
+    if error:
+        return error
+
+    return Response(PmVideoProgresoSerializer(video).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([EsCliente])
+def mi_plan_videos(request, id_plan):
+    """Historial del plan: vigentes y vencidos, del más nuevo al más viejo."""
+    plan, error = _mi_plan_o_404(request, id_plan)
+    if error:
+        return error
+
+    videos = PmVideoProgreso.objects.de_plan(plan.pk)
+    return Response(PmVideoProgresoSerializer(videos, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([EsCliente])
+def mi_video_progreso_eliminar(request, id_video):
+    """Retira un video propio que aún esté vigente."""
+    video = PmVideoProgreso.objects.propio_de_cliente(id_video, request.user.pk)
+    if not video:
+        return Response(
+            {'error': 'El video no existe, no es tuyo o ya no está disponible.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    PmVideoProgreso.objects.eliminar(video, PmVideoProgreso.MotivoEliminacion.RETIRO_PACIENTE)
+    return Response({'mensaje': 'Video retirado correctamente'}, status=status.HTTP_200_OK)

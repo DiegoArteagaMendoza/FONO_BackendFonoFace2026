@@ -1,10 +1,14 @@
+import math
+from datetime import timedelta
+
 from django.db import models
+from django.utils import timezone
 from cloudinary.models import CloudinaryField
 
 from PmMedico.models import PM_Profesional
 from PmCliente.models import PmCliente
 from PmCita.models import PmCita
-from PmTerapia.queryset import PmEjercicio_Queryset, PmPlanTerapia_Queryset
+from PmTerapia.queryset import PmEjercicio_Queryset, PmPlanTerapia_Queryset, PmVideoProgreso_Queryset
 from Security.archivos import borrar_de_cloudinary
 
 # ==========================================================================
@@ -19,8 +23,14 @@ EJEMPLO_DURACION_MAXIMA_SEGUNDOS = 15
 EJEMPLO_TAMANO_MAXIMO_MB = 30
 
 # Tope de ejercicios asignables en un plan. Lo pidió el fonoaudiólogo: más de
-# tres tareas diarias no se cumplen. Se usa en la entrega del plan de terapia.
+# tres tareas diarias no se cumplen.
 EJERCICIOS_MAXIMOS_POR_PLAN = 3
+
+# Video de progreso del paciente: mismos topes que el de síntomas (30 s, 50 MB),
+# pero vive solo 7 días. Es material de trabajo que se revisa y se descarta.
+PROGRESO_DURACION_MAXIMA_SEGUNDOS = 30
+PROGRESO_TAMANO_MAXIMO_MB = 50
+PROGRESO_DIAS_VIGENCIA = 7
 
 
 class PmEjercicio(models.Model):
@@ -199,3 +209,84 @@ class PmPlanEjercicio(models.Model):
 
     def __str__(self):
         return f'{self.orden}. {self.ejercicio.nombre}'
+
+
+class PmVideoProgreso(models.Model):
+    """
+    Un video del paciente practicando uno de los ejercicios de su plan.
+
+    Vive 7 días: es material de trabajo, no clínico de largo plazo, y con
+    reportes diarios o semanales se acumularía sin sentido. Al vencer se borra
+    el archivo y el registro queda: el paciente sigue viendo la fecha y la
+    retroalimentación que le dejaron, aunque el video ya no esté.
+
+    'numero_periodo' se calcula al subir (en hora de Chile, ver periodos.py) y
+    se guarda para no recalcularlo en cada lectura. Es lo que decide si el
+    periodo quedó cumplido.
+    """
+
+    class MotivoEliminacion(models.TextChoices):
+        VENCIMIENTO = 'VE', 'Vencimiento de los 7 días'
+        RETIRO_PACIENTE = 'RP', 'Retirado por el propio paciente'
+        ORDEN_MEDICA = 'OM', 'Eliminado por orden del fonoaudiólogo'
+
+    id_video = models.AutoField('Código del video', primary_key=True)
+
+    plan_ejercicio = models.ForeignKey(
+        PmPlanEjercicio, on_delete=models.CASCADE, related_name='videos',
+        verbose_name='Ejercicio del plan al que responde',
+    )
+
+    video = CloudinaryField('video', folder='pm/videos/progreso/', resource_type='video')
+    duracion_segundos = models.PositiveIntegerField(verbose_name='Duración en segundos')
+    comentario = models.TextField(blank=True, default='', verbose_name='Comentario del paciente')
+
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+    fecha_expiracion = models.DateTimeField(verbose_name='Fecha en que deja de estar disponible')
+    numero_periodo = models.IntegerField(verbose_name='Periodo del plan al que pertenece')
+
+    # Retroalimentación del fonoaudiólogo (entrega de seguimiento). Nula hasta
+    # que la escriba; sobrevive al vencimiento del archivo.
+    retroalimentacion = models.TextField(null=True, blank=True)
+    fecha_retroalimentacion = models.DateTimeField(null=True, blank=True)
+
+    # Control y trazabilidad, como en PmVideo
+    estado = models.BooleanField(default=True, verbose_name='Disponible')
+    fecha_eliminacion = models.DateTimeField(null=True, blank=True)
+    motivo_eliminacion = models.CharField(max_length=2, choices=MotivoEliminacion.choices, null=True, blank=True)
+
+    objects = PmVideoProgreso_Queryset.as_manager()
+
+    class Meta:
+        verbose_name = 'Video de progreso'
+        verbose_name_plural = 'Videos de progreso'
+        ordering = ['-fecha_subida']
+
+    def save(self, *args, **kwargs):
+        if not self.fecha_expiracion:
+            self.fecha_expiracion = timezone.now() + timedelta(days=PROGRESO_DIAS_VIGENCIA)
+        super().save(*args, **kwargs)
+
+    @property
+    def esta_vigente(self):
+        return self.estado and self.fecha_expiracion > timezone.now()
+
+    @property
+    def dias_restantes(self):
+        """Redondeado hacia arriba: recién subido muestra 7, no 6."""
+        if not self.estado:
+            return 0
+        segundos = (self.fecha_expiracion - timezone.now()).total_seconds()
+        return max(math.ceil(segundos / 86400), 0)
+
+    @property
+    def tiene_retroalimentacion(self):
+        return bool(self.retroalimentacion)
+
+    def eliminar_archivo_fisico(self):
+        """Borra el archivo de Cloudinary; el registro no se toca."""
+        if self.video:
+            borrar_de_cloudinary(self.video)
+
+    def __str__(self):
+        return f'Video #{self.id_video} de {self.plan_ejercicio}'

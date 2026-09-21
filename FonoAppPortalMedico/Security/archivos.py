@@ -60,10 +60,15 @@ def borrar_de_cloudinary(recurso):
     return resultado.get('result') in ('ok', 'not found')
 
 
-def guardar_o_400(serializer, **campos):
+def guardar_o_400(objeto, **campos):
     """
-    Guarda un serializer con CloudinaryField traduciendo el rechazo del
-    proveedor en un 400.
+    Guarda un serializer o una instancia con CloudinaryField traduciendo el
+    rechazo del proveedor en un 400.
+
+    Acepta las dos cosas porque hay vistas que construyen el modelo a mano (el
+    video de progreso, cuyo periodo y dueño los pone el servidor) y otras que
+    pasan por un ModelSerializer. En ambos casos el archivo se sube dentro de
+    save(), y ahí es donde Cloudinary puede decir que no.
 
     El archivo no pasa por el almacenamiento de Django: CloudinaryField lo sube
     con su propio SDK dentro de save(), y si Cloudinary lo rechaza —un .mp4 que
@@ -91,7 +96,7 @@ def guardar_o_400(serializer, **campos):
         # o ATOMIC_REQUESTS si algún día se activa). Con el savepoint se
         # revierte solo este intento y lo de afuera sigue usable.
         with transaction.atomic():
-            serializer.save(**campos)
+            objeto.save(**campos)
         return None
     except CloudinaryError:
         return Response(

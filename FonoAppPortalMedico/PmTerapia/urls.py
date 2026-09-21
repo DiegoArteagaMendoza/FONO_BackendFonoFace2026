@@ -130,4 +130,41 @@ urlpatterns = [
     #   (nombre, instrucciones, video de ejemplo) y 'periodo_actual'.
     # -------------------------------------------------------------------------
     path('mis-planes/', views.mis_planes, name='mis-planes'),
+
+    # =========================================================================
+    # VIDEOS DE PROGRESO — lado del paciente
+    # Un video por ejercicio en cada periodo. Viven 7 días; el registro y la
+    # retroalimentación quedan. Todo con el token del paciente.
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST | URL: /api/pm/terapia/mis-planes/5/videos/subir/
+    # BODY (IMPORTANTE): FormData (multipart/form-data), NO JSON.
+    # EN EL FRONTEND (Angular):
+    #   const formData = new FormData();
+    #   formData.append('id_plan_ejercicio', idPlanEjercicio);  // de plan.ejercicios[i].id_plan_ejercicio
+    #   formData.append('video', archivoVideo);
+    #   formData.append('duracion_segundos', Math.round(video.duration));
+    #   formData.append('comentario', 'Me costó la última serie');  // opcional
+    #   -> El periodo y el dueño los pone el servidor.
+    # REGLAS: 30 s, 50 MB, mp4/webm/mov. 400 si el plan está cerrado o el
+    #         ejercicio ya no forma parte de él. Se admite más de un video por
+    #         ejercicio y periodo (el paciente puede regrabarse).
+    # RESPUESTA ESPERADA: El video creado (Status 201) con 'numero_periodo',
+    #   'fecha_expiracion' y 'dias_restantes'.
+    # -------------------------------------------------------------------------
+    path('mis-planes/<int:id_plan>/videos/subir/', views.mi_plan_video_subir, name='mi-plan-video-subir'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/mis-planes/5/videos/
+    # RESPUESTA: Historial del plan, del más nuevo al más viejo. Los vencidos
+    #   vienen con 'video': null pero conservan fecha y retroalimentación.
+    # -------------------------------------------------------------------------
+    path('mis-planes/<int:id_plan>/videos/', views.mi_plan_videos, name='mi-plan-videos'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: DELETE | URL: /api/pm/terapia/mis-videos/12/eliminar/
+    # Retira un video propio vigente (motivo RP). 404 si no es suyo o ya venció.
+    # -------------------------------------------------------------------------
+    path('mis-videos/<int:id_video>/eliminar/', views.mi_video_progreso_eliminar, name='mi-video-progreso-eliminar'),
 ]

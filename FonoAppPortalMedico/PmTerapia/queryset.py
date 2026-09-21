@@ -208,3 +208,91 @@ class PmPlanTerapia_Queryset(models.QuerySet):
         plan.asignaciones.exclude(pk__in=ids_nuevos).filter(estado=True).update(
             estado=False, fecha_actualizacion=timezone.now()
         )
+
+
+class PmVideoProgreso_Queryset(models.QuerySet):
+    """
+    Videos del paciente practicando sus ejercicios. Misma disciplina que
+    PmVideo: nunca se entrega un vencido, y eliminar es lógico (queda el
+    registro con su retroalimentación; se va solo el archivo).
+    """
+
+    # ----------------------------------------------------------------
+    # Consultas
+    # ----------------------------------------------------------------
+
+    def vigentes(self):
+        return self.filter(estado=True, fecha_expiracion__gt=timezone.now())
+
+    def vencidos(self):
+        """Los que cumplieron sus 7 días y siguen sin eliminarse. Los lee la limpieza."""
+        return self.filter(estado=True, fecha_expiracion__lte=timezone.now())
+
+    def de_plan(self, id_plan):
+        """
+        Todo el historial del plan, vigentes o no: la retroalimentación de un
+        video vencido sigue valiendo para el paciente. Del más nuevo al más viejo.
+        """
+        return (self.filter(plan_ejercicio__plan_id=id_plan)
+                    .select_related('plan_ejercicio__ejercicio')
+                    .order_by('-fecha_subida'))
+
+    def que_cuentan(self):
+        """
+        Los videos que valen como reporte: los vigentes y los que vencieron.
+
+        Un video que se envió y caducó a los 7 días cumplió igual; el
+        vencimiento borra el archivo, no el hecho de haberlo mandado. Lo que
+        no cuenta es lo que el paciente retiró (RP) o el fonoaudiólogo eliminó
+        por orden médica (OM): en ambos casos alguien decidió que no valía.
+        """
+        return self.filter(
+            models.Q(estado=True)
+            | models.Q(motivo_eliminacion=self.model.MotivoEliminacion.VENCIMIENTO)
+        )
+
+    def del_periodo(self, id_plan, numero_periodo):
+        """Los que cuentan como reporte en un periodo concreto (ver que_cuentan)."""
+        return self.que_cuentan().filter(plan_ejercicio__plan_id=id_plan, numero_periodo=numero_periodo)
+
+    def propio_de_cliente(self, id_video, id_cliente):
+        return self.vigentes().filter(id_video=id_video, plan_ejercicio__plan__cliente_id=id_cliente).first()
+
+    # ----------------------------------------------------------------
+    # Cambios
+    # ----------------------------------------------------------------
+
+    def preparar_subida(self, plan, id_plan_ejercicio):
+        """
+        Resuelve a qué asignación va el video y en qué periodo cae hoy.
+
+        Devuelve (plan_ejercicio, numero_periodo, error). Las reglas que
+        dependen de la base viven aquí: el plan debe estar activo y el ejercicio
+        debe seguir formando parte de él. El archivo lo valida el serializer.
+        """
+        from PmTerapia.periodos import periodo_actual
+
+        if not plan.esta_activo:
+            return None, None, 'Este plan está cerrado: ya no recibe videos.'
+
+        asignacion = plan.asignaciones.filter(pk=id_plan_ejercicio, estado=True).first()
+        if not asignacion:
+            return None, None, 'Ese ejercicio ya no forma parte de tu plan.'
+
+        return asignacion, periodo_actual(plan.fecha_inicio, plan.periodicidad), None
+
+    def eliminar(self, video, motivo):
+        """
+        Borra el archivo de Cloudinary y marca el registro con el motivo. El
+        registro se conserva: la fecha y la retroalimentación siguen siendo
+        parte del historial del paciente.
+        """
+        if not video.estado:
+            return False
+
+        video.eliminar_archivo_fisico()
+        video.estado = False
+        video.motivo_eliminacion = motivo
+        video.fecha_eliminacion = timezone.now()
+        video.save(update_fields=['estado', 'motivo_eliminacion', 'fecha_eliminacion', 'video'])
+        return True
