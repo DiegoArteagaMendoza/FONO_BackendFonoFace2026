@@ -14,6 +14,7 @@ from PmTerapia.models import (
     PROGRESO_TAMANO_MAXIMO_MB,
 )
 from PmTerapia.periodos import periodo_actual, rango_de_periodo
+from PmTerapia.queryset import cumplimiento_de
 
 
 class PmEjercicioSerializer(serializers.ModelSerializer):
@@ -118,6 +119,9 @@ class PmPlanTerapiaSerializer(serializers.ModelSerializer):
     periodicidad_display = serializers.CharField(source='get_periodicidad_display', read_only=True)
     periodo_actual = serializers.SerializerMethodField()
     esta_activo = serializers.BooleanField(read_only=True)
+    # Semáforo del seguimiento: al día / atrasado, y cuándo fue el último video.
+    al_dia = serializers.SerializerMethodField()
+    ultimo_video = serializers.SerializerMethodField()
 
     class Meta:
         model = PmPlanTerapia
@@ -126,10 +130,25 @@ class PmPlanTerapiaSerializer(serializers.ModelSerializer):
             'paciente_nombre', 'profesional_nombre',
             'periodicidad', 'periodicidad_display', 'fecha_inicio', 'indicaciones',
             'estado', 'esta_activo', 'periodo_actual',
+            'al_dia', 'ultimo_video',
             'ejercicios',
             'fecha_creacion', 'fecha_actualizacion', 'fecha_cierre',
         ]
         read_only_fields = fields
+
+    def _cumplimiento(self, plan):
+        # Se calcula una vez por plan aunque lo pidan varios campos.
+        cache = self.context.setdefault('_cumplimiento', {})
+        if plan.pk not in cache:
+            cache[plan.pk] = cumplimiento_de(plan)
+        return cache[plan.pk]
+
+    def get_al_dia(self, plan):
+        return self._cumplimiento(plan)['al_dia']
+
+    def get_ultimo_video(self, plan):
+        fecha = self._cumplimiento(plan)['ultimo_video']
+        return fecha.isoformat() if fecha else None
 
     def get_ejercicios(self, plan):
         return PmPlanEjercicioSerializer(
@@ -148,6 +167,27 @@ class PmPlanTerapiaSerializer(serializers.ModelSerializer):
         numero = periodo_actual(plan.fecha_inicio, plan.periodicidad)
         primero, ultimo = rango_de_periodo(plan.fecha_inicio, plan.periodicidad, numero)
         return {'numero': numero, 'desde': primero.isoformat(), 'hasta': ultimo.isoformat()}
+
+
+class PmPlanTerapiaSeguimientoSerializer(PmPlanTerapiaSerializer):
+    """
+    El plan como lo ve el fonoaudiólogo en el detalle del seguimiento: lo mismo
+    que el plan, más los periodos ya cerrados con qué ejercicios faltaron en
+    cada uno. El historial de videos va por su propio endpoint.
+    """
+    periodos_cerrados = serializers.SerializerMethodField()
+
+    class Meta(PmPlanTerapiaSerializer.Meta):
+        fields = PmPlanTerapiaSerializer.Meta.fields + ['periodos_cerrados']
+        read_only_fields = fields
+
+    def get_periodos_cerrados(self, plan):
+        return self._cumplimiento(plan)['periodos_cerrados']
+
+
+class PmRetroalimentacionSerializer(serializers.Serializer):
+    """Lo que escribe el fonoaudiólogo sobre un video. Vacío = borrar la retroalimentación."""
+    retroalimentacion = serializers.CharField(allow_blank=True, max_length=4000)
 
 
 class PmPlanEjercicioEntradaSerializer(serializers.Serializer):

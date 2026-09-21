@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes, parser_class
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status
+from django.utils import timezone
 
 from Security.permissions import EsProfesional, EsCliente
 from Security.archivos import guardar_o_400, borrar_de_cloudinary
@@ -14,6 +15,8 @@ from PmTerapia.serializer import (
     PmPlanTerapiaEntradaSerializer,
     PmVideoProgresoSerializer,
     PmVideoProgresoSubirSerializer,
+    PmPlanTerapiaSeguimientoSerializer,
+    PmRetroalimentacionSerializer,
 )
 
 
@@ -347,3 +350,59 @@ def mi_video_progreso_eliminar(request, id_video):
 
     PmVideoProgreso.objects.eliminar(video, PmVideoProgreso.MotivoEliminacion.RETIRO_PACIENTE)
     return Response({'mensaje': 'Video retirado correctamente'}, status=status.HTTP_200_OK)
+
+
+# ==========================================================================
+# SEGUIMIENTO (lado del fonoaudiólogo)
+# --------------------------------------------------------------------------
+# El detalle con los periodos cumplidos, el historial de videos del plan y la
+# retroalimentación escrita. Solo sobre planes propios; lo ajeno es 404.
+# ==========================================================================
+
+@api_view(['GET'])
+@permission_classes([EsProfesional])
+def plan_seguimiento(request, id_plan):
+    """El plan con sus periodos cerrados y qué ejercicios faltaron en cada uno."""
+    plan = PmPlanTerapia.objects.propio_de_profesional(id_plan, request.user.pk)
+    if not plan:
+        return _plan_no_encontrado()
+    return Response(PmPlanTerapiaSeguimientoSerializer(plan).data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([EsProfesional])
+def plan_videos(request, id_plan):
+    """Historial del plan, del más nuevo al más viejo, vigentes y vencidos."""
+    plan = PmPlanTerapia.objects.propio_de_profesional(id_plan, request.user.pk)
+    if not plan:
+        return _plan_no_encontrado()
+
+    videos = PmVideoProgreso.objects.de_plan(plan.pk)
+    return Response(PmVideoProgresoSerializer(videos, many=True).data, status=status.HTTP_200_OK)
+
+
+@api_view(['PATCH'])
+@permission_classes([EsProfesional])
+def video_retroalimentar(request, id_video):
+    """
+    Escribe o corrige la retroalimentación de un video. Con texto vacío se
+    borra. Funciona también sobre videos vencidos: el archivo ya no está, pero
+    el paciente sigue leyendo el comentario.
+    """
+    video = (PmVideoProgreso.objects
+             .filter(pk=id_video, plan_ejercicio__plan__profesional_id=request.user.pk)
+             .select_related('plan_ejercicio__ejercicio')
+             .first())
+    if not video:
+        return Response({'error': 'El video no existe o no es de un plan tuyo.'}, status=status.HTTP_404_NOT_FOUND)
+
+    entrada = PmRetroalimentacionSerializer(data=request.data)
+    if not entrada.is_valid():
+        return Response(entrada.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    texto = entrada.validated_data['retroalimentacion'].strip()
+    video.retroalimentacion = texto or None
+    video.fecha_retroalimentacion = timezone.now() if texto else None
+    video.save(update_fields=['retroalimentacion', 'fecha_retroalimentacion'])
+
+    return Response(PmVideoProgresoSerializer(video).data, status=status.HTTP_200_OK)
