@@ -296,3 +296,66 @@ class PmVideoProgreso_Queryset(models.QuerySet):
         video.fecha_eliminacion = timezone.now()
         video.save(update_fields=['estado', 'motivo_eliminacion', 'fecha_eliminacion', 'video'])
         return True
+
+
+# ======================================================================
+# Cumplimiento
+# ----------------------------------------------------------------------
+# Lo consulta el seguimiento del fonoaudiólogo (semáforo y detalle) y el
+# recordatorio diario. Vive aquí porque cruza periodos (puros, periodos.py)
+# con los videos que hay en la base.
+# ======================================================================
+
+def cumplimiento_de(plan, ahora=None):
+    """
+    Estado del plan frente a sus periodos ya cerrados.
+
+    Devuelve un dict:
+      al_dia            True si todos los periodos cerrados están cumplidos.
+      periodos_cerrados [{numero, desde, hasta, cumplido, faltan: [nombres]}]
+                        del más reciente al más antiguo.
+      ultimo_video      fecha del último video que cuenta, o None.
+
+    Un periodo está cumplido cuando cada ejercicio activo del plan tiene al
+    menos un video que cuente como reporte (ver PmVideoProgreso_Queryset.
+    que_cuentan) con ese numero_periodo. El periodo en curso nunca se evalúa:
+    todavía puede cumplirse.
+    """
+    from PmTerapia.models import PmVideoProgreso
+    from PmTerapia.periodos import periodos_cerrados, rango_de_periodo
+
+    ejercicios = list(plan.ejercicios_activos())
+    ids_ejercicios = [pe.pk for pe in ejercicios]
+
+    # Una sola consulta: (periodo, plan_ejercicio) de todo lo que cuenta.
+    pares = set(
+        PmVideoProgreso.objects.que_cuentan()
+        .filter(plan_ejercicio__in=ids_ejercicios)
+        .values_list('numero_periodo', 'plan_ejercicio_id')
+    )
+
+    detalle = []
+    for numero in reversed(periodos_cerrados(plan.fecha_inicio, plan.periodicidad, ahora)):
+        faltan = [pe.ejercicio.nombre for pe in ejercicios if (numero, pe.pk) not in pares]
+        desde, hasta = rango_de_periodo(plan.fecha_inicio, plan.periodicidad, numero)
+        detalle.append({
+            'numero': numero,
+            'desde': desde.isoformat(),
+            'hasta': hasta.isoformat(),
+            'cumplido': not faltan,
+            'faltan': faltan,
+        })
+
+    ultimo = (
+        PmVideoProgreso.objects.que_cuentan()
+        .filter(plan_ejercicio__plan=plan)
+        .order_by('-fecha_subida')
+        .values_list('fecha_subida', flat=True)
+        .first()
+    )
+
+    return {
+        'al_dia': all(p['cumplido'] for p in detalle),
+        'periodos_cerrados': detalle,
+        'ultimo_video': ultimo,
+    }

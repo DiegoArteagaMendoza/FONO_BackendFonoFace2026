@@ -167,4 +167,34 @@ urlpatterns = [
     # Retira un video propio vigente (motivo RP). 404 si no es suyo o ya venció.
     # -------------------------------------------------------------------------
     path('mis-videos/<int:id_video>/eliminar/', views.mi_video_progreso_eliminar, name='mi-video-progreso-eliminar'),
+
+    # =========================================================================
+    # SEGUIMIENTO — lado del fonoaudiólogo
+    # Todo con el token del profesional y solo sobre planes propios (404 si no).
+    # El listado con el semáforo es GET planes/: cada plan trae 'al_dia' y
+    # 'ultimo_video'.
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/planes/5/seguimiento/
+    # RESPUESTA: El plan más 'periodos_cerrados': [{ numero, desde, hasta,
+    #   cumplido, faltan: [nombres de ejercicio] }], del más reciente al más
+    #   antiguo. El periodo en curso no se evalúa: todavía puede cumplirse.
+    # -------------------------------------------------------------------------
+    path('planes/<int:id_plan>/seguimiento/', views.plan_seguimiento, name='plan-seguimiento'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/terapia/planes/5/videos/
+    # RESPUESTA: Historial del plan, vigentes y vencidos ('video': null), del
+    #   más nuevo al más viejo, cada uno con su retroalimentación si la tiene.
+    # -------------------------------------------------------------------------
+    path('planes/<int:id_plan>/videos/', views.plan_videos, name='plan-videos'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: PATCH | URL: /api/pm/terapia/videos/12/retroalimentar/
+    # BODY (JSON): { "retroalimentacion": "Muy bien la postura..." }
+    #   Texto vacío borra la retroalimentación. Sirve sobre videos vencidos.
+    # RESPUESTA: El video actualizado. 404 si no es de un plan del profesional.
+    # -------------------------------------------------------------------------
+    path('videos/<int:id_video>/retroalimentar/', views.video_retroalimentar, name='video-retroalimentar'),
 ]
