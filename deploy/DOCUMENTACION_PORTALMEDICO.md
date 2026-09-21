@@ -1,6 +1,6 @@
 # DOCUMENTACIÓN DEL PROYECTO FONOAPPPORTALMEDICO (BACKEND)
 
-> Nota de alcance: este documento cubre el proyecto **`FonoAppPortalMedico`** (Portal Médico: registro/acreditación de fonoaudiólogos, pacientes, citas y videos de síntomas). El proyecto hermano **`FonoApp`** (portal público + panel de administradores) está documentado en [`FonoApp/DOCUMENTACION.md`](../FonoApp/DOCUMENTACION.md).
+> Nota de alcance: este documento cubre el proyecto **`FonoAppPortalMedico`** (Portal Médico: registro/acreditación de fonoaudiólogos, pacientes, citas, videos de síntomas y planes de terapia). El proyecto hermano **`FonoApp`** (portal público + panel de administradores) está documentado en [`FonoApp/DOCUMENTACION.md`](../FonoApp/DOCUMENTACION.md).
 
 > Nota de estructura: el repositorio `Backend_Fono` aloja **dos proyectos Django independientes** como carpetas hermanas en la raíz: `FonoApp/` (proyecto principal) y `FonoAppPortalMedico/` (este proyecto). Cada uno tiene su propio `manage.py` y su propio paquete de configuración (`FonoApp/FonoApp/settings.py` y `FonoAppPortalMedico/FonoAppPM/settings.py`). El entorno virtual (`.venv/`), `docker-compose.yml` y `requirements.txt` son compartidos y viven en la raíz del repositorio, un nivel por encima de esta carpeta. **Ambos proyectos apuntan a la misma base de datos** y deben compartir el mismo `SECRET_KEY` — ver [sección 6](#6-autenticación-y-autorización).
 
@@ -16,9 +16,10 @@
 8. [Módulo `PmCliente`](#8-módulo-pmcliente)
 9. [Módulo `PmCita`](#9-módulo-pmcita)
 10. [Módulo `PmVideo`](#10-módulo-pmvideo)
-11. [Relación entre `PmCliente`, `PmCita` y `PmVideo`](#11-relación-entre-pmcliente-pmcita-y-pmvideo)
-12. [Deuda técnica conocida](#12-deuda-técnica-conocida)
-13. [Tabla resumen de endpoints](#13-tabla-resumen-de-endpoints)
+11. [Módulo `PmTerapia`](#11-módulo-pmterapia)
+12. [Relación entre `PmCliente`, `PmCita` y `PmVideo`](#12-relación-entre-pmcliente-pmcita-y-pmvideo)
+13. [Deuda técnica conocida](#13-deuda-técnica-conocida)
+14. [Tabla resumen de endpoints](#14-tabla-resumen-de-endpoints)
 
 ---
 
@@ -28,6 +29,7 @@
 
 - Los **fonoaudiólogos** se registran, suben documentación de respaldo y son acreditados por un administrador de FonoApp antes de aparecer en el directorio público y poder atender.
 - Se gestionan **pacientes** (`PmCliente`), **citas** (`PmCita`) entre paciente y profesional, y **videos de síntomas** (`PmVideo`) que el paciente puede adjuntar a una cita, con vigencia acotada a 30 días.
+- Después de una cita realizada, el fonoaudiólogo asigna un **plan de terapia** (`PmTerapia`): ejercicios con video de ejemplo, periodicidad, videos de progreso del paciente con vigencia de 7 días, retroalimentación escrita y recordatorios por correo.
 
 No tiene su propio panel de "super administrador": reutiliza a los administradores de `FonoApp` (misma tabla `FonoApp_Administracion`, misma base de datos) para todo lo que requiere rol administrativo (acreditar profesionales, validar documentos, gestionar especialidades, ver listados completos).
 
@@ -222,13 +224,14 @@ Datos de los pacientes. Endpoint base: `api/pm/clientes/`.
 ### 8.2 Reglas de negocio
 
 - `buscar(texto)`: búsqueda `icontains` combinada sobre nombres, apellidos, RUT y email.
-- No existe login ni JWT propio para pacientes — es un modelo de datos administrado por profesionales/administradores (ver [sección 12](#12-deuda-técnica-conocida)).
+- El paciente tiene sesión propia (login por correo o RUT, token con claim `id_cliente`, ver [sección 13.1](#131-deuda-ya-resuelta)).
+- **Fichas de invitado.** Una reserva hecha sin sesión crea una ficha **sin contraseña** (`obtener_o_crear_para_reserva`): sirve para colgar la cita, pero no permite iniciar sesión. Si después la persona se registra con ese mismo RUT, `crear_cliente` **activa esa ficha** en vez de fallar por RUT duplicado, y así conserva sus citas y la terapia que le hayan dejado. Para que nadie reclame una ficha ajena sabiendo solo el RUT, el registro exige además el **mismo correo** con el que se reservó (donde llegó el código); si no coincide, 400 en `email_cliente` con la explicación. Un RUT que ya es cuenta responde 400 en `rut_cliente`.
 
 ### 8.3 Endpoints
 
 | Método | Endpoint | Acceso | Descripción |
 |---|---|---|---|
-| POST | `registrar/` | Público | Alta de paciente |
+| POST | `registrar/` | Público | Alta de paciente, o activación de su ficha de invitado (ver 8.2) |
 | GET | `listar/?buscar=texto` | Profesional o Admin | Lista pacientes activos |
 | GET | `<id_cliente>/` | Profesional o Admin | Detalle |
 | PUT/PATCH | `<id_cliente>/editar/` | Admin | Edición (solo admin) |
@@ -349,7 +352,7 @@ EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
 - `esta_vigente`: `estado=True` y `fecha_expiracion` aún no pasó.
 - `dias_restantes`: redondeado hacia arriba (un video recién subido muestra 30, no 29).
 - Las consultas expuestas (`listar/`, detalle) usan siempre `vigentes()` (`estado=True, fecha_expiracion__gt=ahora`) — **nunca se entrega un video vencido**, aunque el archivo físico todavía no se haya purgado del disco.
-- **Comando de limpieza**: `python manage.py limpiar_videos_vencidos` (soporta `--simular` para dry-run) recorre los videos vencidos (`vencidos()`), borra el archivo físico del disco y marca `estado=False`, `motivo_eliminacion='VE'`. **No se ejecuta solo**: hay que programarlo externamente (cron en desarrollo/producción — ver [`DOCUMENTACION_DESPLIEGUE.md`](../DOCUMENTACION_DESPLIEGUE.md) para la configuración del cron job en el hosting).
+- **Comando de limpieza**: `python manage.py limpiar_videos_vencidos` (soporta `--simular` para dry-run) recorre los videos vencidos (`vencidos()`), borra el archivo de Cloudinary y marca `estado=False`, `motivo_eliminacion='VE'`. El mismo comando purga también los videos de progreso de terapia (7 días, ver [§11.4](#114-comandos-y-cron)). **No se ejecuta solo**: hay que programarlo externamente — las líneas de cron están en [`deploy/scripts/crontab_portalmedico.txt`](scripts/crontab_portalmedico.txt).
 - Un profesional puede ordenar la eliminación **anticipada** de un video (antes de los 30 días) vía `DELETE .../eliminar/`, quedando registrado como `motivo_eliminacion='OM'` (orden médica) en vez de vencimiento.
 
 ### 10.3 Validaciones de subida
@@ -371,7 +374,90 @@ EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
 
 ---
 
-## 11. Relación entre `PmCliente`, `PmCita` y `PmVideo`
+## 11. Módulo `PmTerapia`
+
+Seguimiento de la terapia entre citas. El fonoaudiólogo arma un catálogo de **ejercicios** (cada uno con un video de ejemplo permanente de hasta 15 s), y después de una cita **realizada** le asigna al paciente un **plan** con hasta 3 de ellos y una periodicidad. El paciente sube un **video de progreso** (hasta 30 s) por ejercicio en cada periodo; el fonoaudiólogo lo revisa y escribe **retroalimentación**. Si un periodo cierra sin todos sus videos, el paciente recibe un **recordatorio** por correo.
+
+Solo participan pacientes **con cuenta** (`PmCliente` con contraseña): la terapia se reporta desde el portal con sesión, no por código de seguimiento. Los ejercicios son privados de cada fonoaudiólogo.
+
+### 11.1 Modelos y constantes de negocio
+
+```python
+EJEMPLO_DURACION_MAXIMA_SEGUNDOS = 15    # video de ejemplo del ejercicio
+EJEMPLO_TAMANO_MAXIMO_MB = 30
+EJERCICIOS_MAXIMOS_POR_PLAN = 3
+PROGRESO_DURACION_MAXIMA_SEGUNDOS = 30   # video de progreso del paciente
+PROGRESO_TAMANO_MAXIMO_MB = 50
+PROGRESO_DIAS_VIGENCIA = 7
+```
+
+| Modelo | Qué es | Campos que importan |
+|---|---|---|
+| `PmEjercicio` | Un ejercicio del catálogo de un fonoaudiólogo | `profesional` (FK), `nombre`, `instrucciones`, `video_ejemplo` (Cloudinary, `pm/videos/ejercicios/`), `duracion_segundos`, `estado` (borrado lógico) |
+| `PmPlanTerapia` | El plan de un paciente con un fonoaudiólogo | `cliente`, `profesional`, `cita_origen` (`SET_NULL`), `periodicidad` (`DIARIA`/`SEMANAL`/`QUINCENAL`), `fecha_inicio`, `indicaciones`, `estado` (`ACTIVO`/`CERRADO`), `ultimo_periodo_recordado` |
+| `PmPlanEjercicio` | Un ejercicio dentro de un plan | `plan`, `ejercicio` (`PROTECT`), `orden`, `indicaciones` propias, `estado` — al ajustar el plan, los que salen se desactivan, no se borran (sus videos siguen teniendo dueño). Único por `(plan, ejercicio)` |
+| `PmVideoProgreso` | Un video del paciente practicando | `plan_ejercicio`, `video` (Cloudinary, `pm/videos/progreso/`), `duracion_segundos`, `comentario`, `fecha_subida`, `fecha_expiracion` (+7 días), `numero_periodo`, `retroalimentacion`, `fecha_retroalimentacion`, `estado`, `motivo_eliminacion` (`VE` vencimiento, `RP` retirado por el paciente, `OM` orden médica) |
+
+**Un solo plan activo por par paciente–fonoaudiólogo.** MariaDB no soporta `UniqueConstraint` condicional (Django lo omite con la advertencia W036), así que la regla vive en `PmPlanTerapia_Queryset.crear()`, no en la base.
+
+### 11.2 Periodos y cumplimiento
+
+Los periodos **no se guardan**: se derivan de `fecha_inicio` y la periodicidad (`PmTerapia/periodos.py`, funciones puras sobre fechas).
+
+```
+largo      = 1 | 7 | 15 días
+periodo(n) = [fecha_inicio + n·largo, fecha_inicio + (n+1)·largo)
+```
+
+- Todo se calcula en **`America/Santiago`** (`ZONA_HORARIA_TERAPIA`), no en el `TIME_ZONE` del proyecto (UTC): un video subido a las 22:00 en Chile es del día siguiente en UTC, y en un plan diario eso cambiaría de periodo.
+- Un video pertenece al periodo que contiene su `fecha_subida`; `numero_periodo` se guarda al subir.
+- **Periodo cumplido**: cada ejercicio activo del plan tiene al menos un video **que cuente** con ese número. Cuentan los vigentes y los vencidos (`VE`): el vencimiento borra el archivo, no el hecho de haberlo enviado. No cuentan los retirados (`RP`) ni los eliminados por orden médica (`OM`). Ver `PmVideoProgreso_Queryset.que_cuentan()`.
+- **Al día / atrasado**: al día si todos los periodos ya cerrados están cumplidos. El periodo en curso nunca se evalúa. Lo calcula `PmTerapia.queryset.cumplimiento_de(plan)`.
+- Cambiar la periodicidad de un plan reinicia `fecha_inicio` a hoy y `ultimo_periodo_recordado` a −1: mezclar periodos de distinto largo no tiene sentido. Los videos anteriores conservan su `numero_periodo`.
+
+### 11.3 Endpoints
+
+Prefijo `api/pm/terapia/`. Cada quien ve solo lo suyo; un plan o ejercicio ajeno responde **404**, no 403, para no confirmar que existe. Los rechazos de Cloudinary llegan como 400 vía `Security.archivos.guardar_o_400`.
+
+Fonoaudiólogo (`EsProfesional`):
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| GET | `ejercicios/` | Su catálogo vigente |
+| POST | `ejercicios/crear/` | Multipart: `nombre, instrucciones, video_ejemplo, duracion_segundos` (≤ 15 s, ≤ 30 MB) |
+| PATCH | `ejercicios/<id>/editar/` | Texto, y opcionalmente un video nuevo (reemplaza y borra el anterior de Cloudinary) |
+| DELETE | `ejercicios/<id>/eliminar/` | Borrado lógico; el archivo solo se borra si ningún plan lo usó |
+| POST | `planes/crear/` | `{id_cita, ejercicios: [{ejercicio, indicaciones?}] (1–3), periodicidad, indicaciones?}` — la cita debe ser suya, `REALIZADA`, el paciente con cuenta y sin plan activo con él |
+| GET | `planes/` | Sus planes activos (`?todos=true` incluye cerrados), con `al_dia` y `ultimo_video` |
+| GET | `planes/<id>/` | Detalle |
+| PATCH | `planes/<id>/ajustar/` | Ejercicios, periodicidad o indicaciones |
+| POST | `planes/<id>/cerrar/` | Cierra el plan |
+| GET | `planes/de-cita/<id_cita>/` | `{plan\|null, paciente_nombre, paciente_tiene_cuenta, cita_realizada}` — lo que necesita la agenda para ofrecer "asignar" o "ajustar" |
+| GET | `planes/<id>/seguimiento/` | Detalle más `periodos_cerrados: [{numero, desde, hasta, cumplido, faltan}]` |
+| GET | `planes/<id>/videos/` | Historial completo del plan, vencidos incluidos (sin URL), del más nuevo al más viejo |
+| PATCH | `videos/<id>/retroalimentar/` | `{retroalimentacion}`; vacío la borra; funciona sobre videos vencidos |
+
+Paciente (`EsCliente`):
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| GET | `mis-planes/` | Sus planes activos con ejercicios (video de ejemplo, instrucciones), periodo actual y qué ejercicios ya envió en él |
+| POST | `mis-planes/<id>/videos/subir/` | Multipart: `plan_ejercicio, video, duracion_segundos (≤ 30 s), comentario?` — 400 si el plan está cerrado o el ejercicio ya no está activo |
+| GET | `mis-planes/<id>/videos/` | Sus videos con la retroalimentación, por fecha |
+| DELETE | `mis-videos/<id>/eliminar/` | Retira uno propio (`motivo_eliminacion='RP'`); deja de contar para el cumplimiento |
+
+### 11.4 Comandos y cron
+
+| Comando | Qué hace |
+|---|---|
+| `python manage.py limpiar_videos_vencidos [--simular]` | Además de los videos de síntomas (30 días), borra de Cloudinary los videos de progreso que cumplieron sus 7 días y los marca `VE`. La retroalimentación se conserva y el paciente la sigue leyendo. Los videos de ejemplo no vencen. |
+| `python manage.py enviar_recordatorios_terapia [--simular]` | Para cada plan activo mira **solo su último periodo cerrado**: si le faltó algún ejercicio y `numero > ultimo_periodo_recordado`, envía un correo al paciente (`PmTerapia/correos.py`) con los ejercicios que faltaron, el rango del periodo y el enlace a `{FRONTEND_URL}/#/portalmedico/paciente/terapia`, y guarda el número. **Un correo por periodo, nunca dos**; si el envío falla no se marca, y con planes semanales o quincenales se reintenta al día siguiente. |
+
+Ambos corren una vez al día desde el cron del hosting; las líneas exactas para cPanel están en [`deploy/scripts/crontab_portalmedico.txt`](scripts/crontab_portalmedico.txt). El de recordatorios conviene correrlo después de la medianoche chilena (así el periodo que cerró ayer ya cuenta como cerrado) y necesita `EMAIL_HOST` y `FRONTEND_URL` en el `.env`; sin `EMAIL_HOST` los correos salen por consola, como los de citas.
+
+---
+
+## 12. Relación entre `PmCliente`, `PmCita` y `PmVideo`
 
 1. Un paciente (`PmCliente`) puede tener múltiples citas y múltiples videos. Una cita conecta un paciente con **un** profesional (`PmCita.cliente` + `PmCita.profesional`, ambos `CASCADE`).
 2. Todo video pertenece obligatoriamente a un paciente (`PmVideo.cliente`, `CASCADE`); la cita asociada es **opcional** (`PmVideo.cita`, `SET_NULL`) — una cita puede tener varios videos, o ninguno; un video pertenece como máximo a una cita.
@@ -381,20 +467,20 @@ EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
 
 ---
 
-## 12. Deuda técnica conocida
+## 13. Deuda técnica conocida
 
 Documentada aquí para que quien retome el código sepa qué falta, no para "denunciar" nada:
 
 - **Comentarios de "rol máximo" desactualizados.** Varios `urls.py` de `PmMedico` documentan (en comentarios) que ciertas acciones administrativas requieren `is_superuser`, pero el permiso real aplicado (`EsAdministrador`) solo exige `is_staff`. Ver nota en [sección 6](#6-autenticación-y-autorización).
 
-### 12.1 Deuda ya resuelta
+### 13.1 Deuda ya resuelta
 
 - ~~**`PmCliente` no tiene login/JWT propio.**~~ **Resuelto.** `PmCliente` tiene sesión propia (`POST api/pm/clientes/login/`, token con el claim `id_cliente`, reconocido por `Security.authentication`) y el permiso `Security.permissions.EsCliente`. Como parte del mismo cambio se endurecieron los endpoints que antes eran públicos: los cuatro de paciente en `PmCita` (`reservar/`, `cliente/<id>/listar/`, cancelar y posponer), `cita_detalle` y la subida de video en `PmVideo` ahora exigen token de paciente y toman el dueño de `request.user`. El `id_cliente` ya no se acepta desde el body ni desde `?cliente=`, por lo que **conocer el id de otro paciente ya no permite operar sobre sus citas ni sus videos**.
 - ~~**`PmCliente.rut_cliente` y `PmCliente.telefono_cliente` no tienen validación de formato.**~~ **Resuelto.** Ambos campos usan `Security.validators.validar_rut_chileno` y `validar_telefono`, igual que sus equivalentes en `PM_Profesional`, y el RUT se normaliza a mayúsculas para que el dígito verificador `K` no impida el inicio de sesión.
 
 ---
 
-## 13. Tabla resumen de endpoints
+## 14. Tabla resumen de endpoints
 
 | App | Prefijo | Público | Requiere JWT (Paciente) | Requiere JWT (Profesional) | Requiere JWT (Admin) |
 |---|---|---|---|---|---|
@@ -402,6 +488,7 @@ Documentada aquí para que quien retome el código sepa qué falta, no para "den
 | `PmCliente` | `api/pm/clientes/` | `registrar/`, `login/` | `perfil/`, `perfil/editar/`, `perfil/password/` | `listar/`, `<id>/` (compartido con Admin) | `<id>/editar/`, `<id>/eliminar/` |
 | `PmCita` | `api/pm/citas/` | — | `reservar/`, `cliente/<id>/listar/`, `<id>/cliente/cancelar\|posponer/` | `profesional/listar/`, `<id>/profesional/*` | `listar/` |
 | `PmVideo` | `api/pm/videos/` | — | `subir/`, `mis-videos/`, `mis-videos/<id>/eliminar/` | `listar/`, `<id>/`, `<id>/eliminar/` (compartido con Admin) | ídem |
+| `PmTerapia` | `api/pm/terapia/` | — | `mis-planes/`, `mis-planes/<id>/videos/`, `mis-planes/<id>/videos/subir/`, `mis-videos/<id>/eliminar/` | `ejercicios/*`, `planes/*`, `videos/<id>/retroalimentar/` | — |
 
 `<id_cita>/` (detalle de cita) acepta las tres identidades autenticadas, siempre que sean parte de esa cita.
 

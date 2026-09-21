@@ -2,12 +2,18 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from PmCliente.models import PmCliente
+from Security.validators import validar_rut_chileno
 
 
 class PmClienteRegistroSerializer(serializers.ModelSerializer):
     """
     Registro del paciente. La contraseña entra como campo de solo escritura y
     nunca vuelve en la respuesta.
+
+    RUT y correo van sin el UniqueValidator que ModelSerializer les pondría
+    solo: un RUT repetido puede ser una ficha de invitado que corresponde
+    activar (ver PmCliente_Queryset.crear_cliente), y esa decisión la toma el
+    queryset. La unicidad real la siguen garantizando full_clean() y la base.
     """
     password = serializers.CharField(write_only=True, min_length=8, style={'input_type': 'password'})
 
@@ -24,6 +30,10 @@ class PmClienteRegistroSerializer(serializers.ModelSerializer):
             'password',
         ]
         read_only_fields = ['id_cliente']
+        extra_kwargs = {
+            'rut_cliente': {'validators': [validar_rut_chileno]},
+            'email_cliente': {'validators': []},
+        }
 
     def validate_rut_cliente(self, value):
         """

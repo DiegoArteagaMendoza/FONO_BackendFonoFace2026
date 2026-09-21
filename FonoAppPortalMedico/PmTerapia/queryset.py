@@ -86,6 +86,37 @@ class PmPlanTerapia_Queryset(models.QuerySet):
         return self.activos().filter(cliente_id=id_cliente, profesional_id=id_profesional).first()
 
     # ----------------------------------------------------------------
+    # Recordatorios
+    # ----------------------------------------------------------------
+
+    def recordatorios_pendientes(self, ahora=None):
+        """
+        Los planes a los que hoy corresponde mandar un recordatorio.
+
+        Devuelve [(plan, numero_periodo, faltan)]: un plan entra cuando su
+        último periodo cerrado no está cumplido y todavía no se le recordó
+        (numero > ultimo_periodo_recordado). Solo se mira el último cerrado:
+        reclamar periodos más viejos no ayuda al paciente, y así un cron que
+        estuvo caído unos días no dispara una ráfaga de correos al volver.
+        """
+        from PmTerapia.periodos import ultimo_periodo_cerrado
+
+        pendientes = []
+        for plan in self.activos().select_related('cliente', 'profesional').order_by('id_plan'):
+            numero = ultimo_periodo_cerrado(plan.fecha_inicio, plan.periodicidad, ahora)
+            if numero is None or numero <= plan.ultimo_periodo_recordado:
+                continue
+            faltan = faltan_en_periodo(plan, numero)
+            if faltan:
+                pendientes.append((plan, numero, faltan))
+        return pendientes
+
+    def marcar_recordado(self, plan, numero):
+        """Deja constancia de que ese periodo ya se recordó: nunca dos correos por el mismo."""
+        plan.ultimo_periodo_recordado = numero
+        plan.save(update_fields=['ultimo_periodo_recordado', 'fecha_actualizacion'])
+
+    # ----------------------------------------------------------------
     # Crear
     # ----------------------------------------------------------------
 
@@ -305,6 +336,21 @@ class PmVideoProgreso_Queryset(models.QuerySet):
 # recordatorio diario. Vive aquí porque cruza periodos (puros, periodos.py)
 # con los videos que hay en la base.
 # ======================================================================
+
+def faltan_en_periodo(plan, numero):
+    """
+    Nombres de los ejercicios activos del plan sin video que cuente en ese
+    periodo. Lista vacía = periodo cumplido. Es lo que lee el recordatorio,
+    que solo mira un periodo y no necesita el detalle completo.
+    """
+    from PmTerapia.models import PmVideoProgreso
+
+    con_video = set(
+        PmVideoProgreso.objects.del_periodo(plan.pk, numero)
+        .values_list('plan_ejercicio_id', flat=True)
+    )
+    return [pe.ejercicio.nombre for pe in plan.ejercicios_activos() if pe.pk not in con_video]
+
 
 def cumplimiento_de(plan, ahora=None):
     """

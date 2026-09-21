@@ -29,15 +29,21 @@ class PmCliente_Queryset(models.QuerySet):
         de la contraseña se valida en texto plano (AUTH_PASSWORD_VALIDATORS)
         ANTES de hashearla, y el error se asocia al campo 'password' para que
         llegue anidado igual que el resto.
+
+        Si el RUT ya tiene una ficha SIN contraseña (la creó una reserva hecha
+        sin sesión, ver obtener_o_crear_para_reserva), el registro la ACTIVA en
+        vez de fallar por RUT duplicado: así la persona conserva sus citas y la
+        terapia que le hayan dejado. Para que nadie reclame una ficha ajena
+        conociendo solo el RUT, se exige además el mismo correo con el que se
+        reservó, que es donde llegó el código de la hora.
         """
-        cliente = self.model(
-            nombres_cliente=nombres,
-            apellidos_clientes=apellidos,
-            rut_cliente=rut,
-            fecha_nacimiento_cliente=fecha_nacimiento,
-            email_cliente=email,
-            telefono_cliente=telefono,
-        )
+        cliente = self._ficha_de_invitado(rut, email) or self.model(rut_cliente=rut)
+
+        cliente.nombres_cliente = nombres
+        cliente.apellidos_clientes = apellidos
+        cliente.fecha_nacimiento_cliente = fecha_nacimiento
+        cliente.email_cliente = email
+        cliente.telefono_cliente = telefono
 
         try:
             validate_password(password, user=cliente)
@@ -48,6 +54,26 @@ class PmCliente_Queryset(models.QuerySet):
         cliente.full_clean(exclude=['password_cliente'])
         cliente.save()
         return cliente
+
+    def _ficha_de_invitado(self, rut, email):
+        """
+        La ficha sin contraseña que corresponde activar con este registro, o
+        None si el RUT es nuevo. Levanta ValidationError si el RUT ya es una
+        cuenta, está dado de baja, o el correo no coincide con el de la reserva.
+        """
+        existente = self.filter(rut_cliente__iexact=rut).first()
+        if not existente:
+            return None
+        if not existente.estado:
+            raise ValidationError({'rut_cliente': 'Esa ficha de paciente está dada de baja. Contacte al centro.'})
+        if existente.password_cliente:
+            raise ValidationError({'rut_cliente': 'Ya existe una cuenta con ese RUT. Inicia sesión con ella.'})
+        if (existente.email_cliente or '').strip().lower() != (email or '').strip().lower():
+            raise ValidationError({'email_cliente': (
+                'Ese RUT ya tiene una ficha creada al reservar una hora sin cuenta. '
+                'Para activarla, regístrate con el mismo correo que diste al reservar.'
+            )})
+        return existente
 
     def obtener_o_crear_para_reserva(self, nombres, apellidos, rut, fecha_nacimiento, email, telefono):
         """

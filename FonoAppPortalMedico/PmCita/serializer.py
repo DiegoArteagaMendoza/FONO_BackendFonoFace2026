@@ -198,6 +198,9 @@ class PmCitaSeguimientoSerializer(serializers.ModelSerializer):
     ya_paso = serializers.BooleanField(read_only=True)
     permite_cambios = serializers.SerializerMethodField()
     reprogramaciones_restantes = serializers.SerializerMethodField()
+    # Tras una cita realizada, la terapia sigue en el portal con sesión: la
+    # pantalla del código avisa a quien todavía no tiene cuenta que la cree.
+    paciente_tiene_cuenta = serializers.SerializerMethodField()
 
     class Meta:
         model = PmCita
@@ -206,7 +209,7 @@ class PmCitaSeguimientoSerializer(serializers.ModelSerializer):
             'estado', 'estado_display', 'profesional_nombre', 'paciente_nombre',
             'motivo_cancelacion', 'fecha_hora_original', 'veces_reprogramada',
             'esta_activa', 'ya_paso', 'permite_cambios', 'reprogramaciones_restantes',
-            'permite_carga_video',
+            'permite_carga_video', 'paciente_tiene_cuenta',
         ]
         read_only_fields = fields
 
@@ -215,6 +218,9 @@ class PmCitaSeguimientoSerializer(serializers.ModelSerializer):
 
     def get_paciente_nombre(self, cita):
         return f'{cita.cliente.nombres_cliente} {cita.cliente.apellidos_clientes}'
+
+    def get_paciente_tiene_cuenta(self, cita):
+        return bool(cita.cliente.password_cliente)
 
     def get_permite_cambios(self, cita):
         return cita.permite_cambios()
