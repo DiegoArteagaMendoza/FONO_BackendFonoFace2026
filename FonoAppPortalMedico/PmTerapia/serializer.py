@@ -6,9 +6,12 @@ from PmTerapia.models import (
     PmEjercicio,
     PmPlanTerapia,
     PmPlanEjercicio,
+    PmVideoProgreso,
     EJEMPLO_DURACION_MAXIMA_SEGUNDOS,
     EJEMPLO_TAMANO_MAXIMO_MB,
     EJERCICIOS_MAXIMOS_POR_PLAN,
+    PROGRESO_DURACION_MAXIMA_SEGUNDOS,
+    PROGRESO_TAMANO_MAXIMO_MB,
 )
 from PmTerapia.periodos import periodo_actual, rango_de_periodo
 
@@ -81,13 +84,25 @@ class PmPlanEjercicioSerializer(serializers.ModelSerializer):
     Un ejercicio dentro del plan, con el ejercicio del catálogo incrustado:
     quien lee el plan (fonoaudiólogo o paciente) necesita el nombre, las
     instrucciones y el video de ejemplo sin hacer otra llamada.
+
+    'enviado_periodo_actual' es lo que la pantalla del paciente muestra como
+    "enviado" o "falta". Se calcula con el periodo actual que llega por
+    contexto desde el serializer del plan, para no repetir la aritmética.
     """
     ejercicio = PmEjercicioSerializer(read_only=True)
+    enviado_periodo_actual = serializers.SerializerMethodField()
 
     class Meta:
         model = PmPlanEjercicio
-        fields = ['id_plan_ejercicio', 'orden', 'indicaciones', 'ejercicio']
+        fields = ['id_plan_ejercicio', 'orden', 'indicaciones', 'ejercicio', 'enviado_periodo_actual']
         read_only_fields = fields
+
+    def get_enviado_periodo_actual(self, asignacion):
+        periodo = self.context.get('periodo_actual')
+        if periodo is None:
+            return False
+        # Cuenta también el que ya venció: se envió, y eso es lo que importa.
+        return asignacion.videos.que_cuentan().filter(numero_periodo=periodo).exists()
 
 
 class PmPlanTerapiaSerializer(serializers.ModelSerializer):
@@ -117,7 +132,10 @@ class PmPlanTerapiaSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_ejercicios(self, plan):
-        return PmPlanEjercicioSerializer(plan.ejercicios_activos(), many=True).data
+        return PmPlanEjercicioSerializer(
+            plan.ejercicios_activos(), many=True,
+            context={'periodo_actual': periodo_actual(plan.fecha_inicio, plan.periodicidad)},
+        ).data
 
     def get_paciente_nombre(self, plan):
         return f'{plan.cliente.nombres_cliente} {plan.cliente.apellidos_clientes}'
@@ -174,3 +192,58 @@ class PmPlanTerapiaEntradaSerializer(serializers.Serializer):
             {'ejercicio': encontrados[item['id_ejercicio']], 'indicaciones': item.get('indicaciones', '')}
             for item in items
         ]
+
+
+# ==========================================================================
+# VIDEO DE PROGRESO
+# ==========================================================================
+
+class PmVideoProgresoSerializer(serializers.ModelSerializer):
+    """
+    Un video de progreso, para el paciente y para el fonoaudiólogo.
+
+    'video' llega como URL, o null si el archivo ya venció: el registro sigue
+    valiendo por su fecha y su retroalimentación. Incluye el nombre del
+    ejercicio y el id de su asignación para que el historial se pueda leer y
+    agrupar sin otra llamada.
+    """
+    dias_restantes = serializers.IntegerField(read_only=True)
+    esta_vigente = serializers.BooleanField(read_only=True)
+    tiene_retroalimentacion = serializers.BooleanField(read_only=True)
+    ejercicio_nombre = serializers.CharField(source='plan_ejercicio.ejercicio.nombre', read_only=True)
+
+    class Meta:
+        model = PmVideoProgreso
+        fields = [
+            'id_video', 'plan_ejercicio', 'ejercicio_nombre',
+            'video', 'duracion_segundos', 'comentario',
+            'fecha_subida', 'fecha_expiracion', 'numero_periodo',
+            'retroalimentacion', 'fecha_retroalimentacion', 'tiene_retroalimentacion',
+            'estado', 'dias_restantes', 'esta_vigente',
+        ]
+        read_only_fields = fields
+
+    def to_representation(self, instance):
+        datos = super().to_representation(instance)
+        # Vencido o retirado: el archivo ya no está, y una URL a algo borrado
+        # solo produce un reproductor roto.
+        datos['video'] = url_absoluta(instance.video) if instance.esta_vigente else None
+        return datos
+
+
+class PmVideoProgresoSubirSerializer(serializers.Serializer):
+    """
+    Lo que llega al subir: el archivo, su duración declarada, el ejercicio del
+    plan al que responde y un comentario opcional. El dueño, el plan y el
+    periodo los pone la vista; nada de eso se acepta desde el cuerpo.
+    """
+    id_plan_ejercicio = serializers.IntegerField()
+    video = serializers.FileField()
+    duracion_segundos = serializers.IntegerField()
+    comentario = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate_video(self, archivo):
+        return validar_archivo(archivo, PROGRESO_TAMANO_MAXIMO_MB)
+
+    def validate_duracion_segundos(self, value):
+        return validar_duracion(value, PROGRESO_DURACION_MAXIMA_SEGUNDOS)

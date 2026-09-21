@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from PmTerapia.models import PmEjercicio, PmPlanTerapia, PmPlanEjercicio
+from PmTerapia.models import PmEjercicio, PmPlanTerapia, PmPlanEjercicio, PmVideoProgreso
 
 
 @admin.register(PmEjercicio)
@@ -20,3 +20,9 @@ class PmPlanTerapiaAdmin(admin.ModelAdmin):
     list_display = ('id_plan', 'cliente', 'profesional', 'periodicidad', 'fecha_inicio', 'estado')
     list_filter = ('estado', 'periodicidad')
     inlines = [PmPlanEjercicioInline]
+
+
+@admin.register(PmVideoProgreso)
+class PmVideoProgresoAdmin(admin.ModelAdmin):
+    list_display = ('id_video', 'plan_ejercicio', 'numero_periodo', 'fecha_subida', 'fecha_expiracion', 'estado')
+    list_filter = ('estado', 'motivo_eliminacion')
