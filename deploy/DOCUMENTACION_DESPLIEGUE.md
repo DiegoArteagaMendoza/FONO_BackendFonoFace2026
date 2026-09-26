@@ -351,8 +351,12 @@ esa base antes de aplicar el cambio en producción.
       terapia) — ver [`deploy/scripts/crontab_portalmedico.txt`](deploy/scripts/crontab_portalmedico.txt),
       [`FonoAppPortalMedico/DOCUMENTACION.md` §10.2](FonoAppPortalMedico/DOCUMENTACION.md#102-lógica-de-vigencia-30-días)
       y [§11.4](FonoAppPortalMedico/DOCUMENTACION.md#114-comandos-y-cron).
-- [ ] `EMAIL_HOST` (con usuario y clave) y `FRONTEND_URL` en el `.env` del Portal Médico: sin ellos, las
-      confirmaciones de citas y los recordatorios de terapia salen por consola y no le llegan a nadie.
+- [ ] `EMAIL_HOST` (con usuario y clave) en el `.env` del Portal Médico: sin él, las confirmaciones de
+      citas, los recordatorios de terapia y los avisos de retroalimentación salen por consola y no le
+      llegan a nadie.
+- [ ] `FRONTEND_URL` con el dominio real del portal, **no** `localhost` (en develop,
+      `https://dev.vocare-ubb.cl`, sin barra final): es la base de todos los enlaces que van dentro de
+      los correos. Con `DEBUG=False` y un `FRONTEND_URL` local, el arranque lo advierte en el log.
 - [ ] Probar un flujo completo de punta a punta: login admin en `FonoApp` → usar ese token en
       `FonoAppPortalMedico` para listar profesionales pendientes de acreditación.
 

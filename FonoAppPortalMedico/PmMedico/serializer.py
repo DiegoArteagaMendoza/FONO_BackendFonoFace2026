@@ -101,6 +101,14 @@ class PM_ResolverAcreditacionSerializer(serializers.Serializer):
     estado_verificacion_profesional = serializers.ChoiceField(choices=['APROBADO', 'RECHAZADO'])
 
 
+class PM_DeshabilitarProfesionalSerializer(serializers.Serializer):
+    """
+    Body al deshabilitar una cuenta. El motivo es opcional pero llega al correo
+    de los pacientes cuya hora se cancela, así que conviene escribirlo.
+    """
+    motivo = serializers.CharField(required=False, allow_blank=True, default='', max_length=500)
+
+
 # =========================================================
 # 5. PROFESIONAL
 # =========================================================

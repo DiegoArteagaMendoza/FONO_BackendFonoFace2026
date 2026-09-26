@@ -1,8 +1,13 @@
 """
 Correos que se envían al paciente sobre su plan de terapia.
 
-Por ahora uno solo: el recordatorio cuando un periodo cierra sin todos sus
-videos. Lo dispara el comando enviar_recordatorios_terapia, nunca una vista.
+Son dos: el recordatorio cuando un periodo cierra sin todos sus videos (lo
+dispara el comando enviar_recordatorios_terapia) y el aviso de que su
+fonoaudiólogo le dejó retroalimentación en un video.
+
+Ninguno interrumpe lo que estaba pasando: si el envío falla se registra en el
+log y se devuelve False. Que un correo no salga no puede costarle al
+fonoaudiólogo la retroalimentación que acaba de escribir.
 """
 
 import logging
@@ -32,6 +37,26 @@ def _texto_periodo(plan, numero):
     if desde == hasta:
         return f'el {desde:%d/%m/%Y}'
     return f'del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}'
+
+
+def _enviar(asunto, cuerpo, destinatario, que_es):
+    """
+    Envía y devuelve si salió. 'que_es' solo se usa para el log cuando falla.
+    """
+    try:
+        send_mail(
+            subject=asunto,
+            message=cuerpo,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[destinatario],
+            fail_silently=False,
+        )
+        return True
+    except Exception:
+        # exception() incluye la traza, que hace falta para diagnosticar un SMTP
+        # mal configurado; el paciente no ve nada de esto.
+        logger.exception('No se pudo enviar %s', que_es)
+        return False
 
 
 def enviar_recordatorio_periodo(plan, numero, faltan):
@@ -71,17 +96,46 @@ y las instrucciones.
 Portal Médico Vocare UBB — Universidad del Bío-Bío
 """
 
-    try:
-        send_mail(
-            subject=asunto,
-            message=cuerpo,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[destinatario],
-            fail_silently=False,
-        )
-        return True
-    except Exception:
-        # exception() incluye la traza, que hace falta para diagnosticar un SMTP
-        # mal configurado; el paciente no ve nada de esto.
-        logger.exception('No se pudo enviar el recordatorio del plan %s', plan.pk)
+    return _enviar(asunto, cuerpo, destinatario, f'el recordatorio del plan {plan.pk}')
+
+
+def enviar_aviso_retroalimentacion(video):
+    """
+    Avisa al paciente de que su fonoaudiólogo le comentó un video.
+
+    El texto va completo dentro del correo: es corto por naturaleza y el
+    paciente suele leerlo en el teléfono, donde abrir el portal para ver dos
+    líneas es un trámite. El enlace queda igual para quien quiera ver el video
+    junto al comentario.
+
+    Se manda cada vez que el fonoaudiólogo guarda un texto, también cuando
+    corrige lo que ya había escrito: una corrección puede cambiar por completo
+    la indicación, y enterarse tarde es peor que recibir un correo de más.
+    """
+    plan = video.plan_ejercicio.plan
+    cliente = plan.cliente
+    destinatario = (cliente.email_cliente or '').strip()
+
+    if not destinatario:
+        logger.warning('Video %s sin correo de destino; no se avisa la retroalimentación.', video.pk)
         return False
+
+    profesional = f'{plan.profesional.nombres_profesional} {plan.profesional.apellidos_profesional}'
+    ejercicio = video.plan_ejercicio.ejercicio.nombre
+
+    asunto = f'{profesional} comentó tu video de terapia'
+    cuerpo = f"""Hola {cliente.nombres_cliente},
+
+{profesional} revisó el video de "{ejercicio}" que enviaste el
+{video.fecha_subida:%d/%m/%Y} y te dejó este comentario:
+
+{video.retroalimentacion}
+
+Puedes verlo junto al video en tu portal:
+
+{_enlace_mi_terapia()}
+
+Portal Médico Vocare UBB — Universidad del Bío-Bío
+"""
+
+    return _enviar(asunto, cuerpo, destinatario, f'el aviso de retroalimentación del video {video.pk}')

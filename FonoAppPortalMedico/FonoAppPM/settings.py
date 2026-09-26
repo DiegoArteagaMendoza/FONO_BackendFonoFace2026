@@ -344,6 +344,21 @@ else:
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Vocare UBB <no-responder@vocare-ubb.cl>')
 
-# Base pública del frontend, para armar el enlace de seguimiento del correo.
-# Sin esto el correo llevaría a localhost en producción.
+# Base pública del frontend, para armar los enlaces que van dentro de los
+# correos (seguimiento de la cita, "Mi terapia", directorio). El valor por
+# defecto solo sirve en desarrollo; en el hosting hay que definir FRONTEND_URL
+# con el dominio real (en develop, https://dev.vocare-ubb.cl).
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:4200').rstrip('/')
+
+# Con DEBUG=False y FRONTEND_URL apuntando al equipo local, los correos salen
+# con enlaces que nadie puede abrir. Es un error de configuración silencioso:
+# todo "funciona", pero el paciente recibe un enlace muerto. Queda anotado en
+# el log del servidor al arrancar, que es donde se va a buscar.
+if not DEBUG and ('localhost' in FRONTEND_URL or '127.0.0.1' in FRONTEND_URL):
+    import logging
+
+    logging.getLogger(__name__).warning(
+        'FRONTEND_URL apunta a %s con DEBUG=False: los enlaces de los correos '
+        'no funcionarán. Defina FRONTEND_URL con el dominio real del portal.',
+        FRONTEND_URL,
+    )

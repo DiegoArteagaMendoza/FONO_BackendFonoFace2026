@@ -134,6 +134,32 @@ class PmCita_Queryset(models.QuerySet):
             return None, 'Cita no encontrada.'
         return self._cancelar(cita, self.model.Origen.CLIENTE, motivo)
 
+    def cancelar_todas_de_profesional(self, id_profesional, motivo):
+        """
+        Cancela todas las citas futuras de un profesional. La usa la baja
+        administrativa de su cuenta (PM_ProfesionalQueryset.deshabilitar).
+
+        A diferencia de las otras cancelaciones, aquí NO rige la anticipación
+        mínima: si al profesional se le da de baja hoy, la hora de mañana
+        temprano tampoco se va a atender, y dejarla reservada solo asegura que
+        el paciente llegue a una cita que ya no existe.
+
+        Devuelve las citas canceladas, con su cliente cargado, para que quien
+        llama pueda avisarle a cada uno por correo.
+        """
+        canceladas = []
+
+        for cita in self.proximas_de_profesional(id_profesional).select_related('cliente', 'profesional'):
+            cita.estado = self.model.Estado.CANCELADA_MEDICO
+            cita.motivo_cancelacion = motivo
+            cita.fecha_cancelacion = timezone.now()
+            cita.cancelada_por = self.model.Origen.PROFESIONAL
+            cita.save(update_fields=['estado', 'motivo_cancelacion', 'fecha_cancelacion', 'cancelada_por'])
+            self._liberar_bloque(cita)
+            canceladas.append(cita)
+
+        return canceladas
+
     def cancelar_por_profesional(self, id_cita, id_profesional, motivo=None):
         """Solo el profesional asignado puede cancelarla."""
         try:
@@ -446,3 +472,15 @@ class PmDisponibilidad_Queryset(models.QuerySet):
         bloque.estado = False
         bloque.save(update_fields=['estado'])
         return bloque, None
+
+    def retirar_todos_de_profesional(self, id_profesional):
+        """
+        Retira los bloques futuros de un profesional dado de baja, para que
+        dejen de ofrecerse. Devuelve cuántos.
+
+        Aquí sí entran los que tenían cita: esas citas se cancelan en la misma
+        baja (ver PmCita_Queryset.cancelar_todas_de_profesional), así que el
+        bloque queda sin nada que respaldar. Los bloques pasados no se tocan:
+        son historial.
+        """
+        return self.proximos_de_profesional(id_profesional).update(estado=False)

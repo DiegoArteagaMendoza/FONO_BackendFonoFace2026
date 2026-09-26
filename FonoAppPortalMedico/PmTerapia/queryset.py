@@ -211,6 +211,21 @@ class PmPlanTerapia_Queryset(models.QuerySet):
         plan.save(update_fields=['estado', 'fecha_cierre', 'fecha_actualizacion'])
         return plan, None
 
+    def cerrar_todos_de_profesional(self, id_profesional):
+        """
+        Cierra los planes activos de un profesional dado de baja. Devuelve
+        cuántos.
+
+        Un plan sin nadie que revise los videos no puede seguir pidiéndolos: el
+        paciente grabaría para nadie y el recordatorio diario le reclamaría
+        periodos que ya no tienen destinatario. Los videos y la
+        retroalimentación anteriores quedan: el plan cerrado se sigue leyendo.
+        """
+        return self.activos().filter(profesional_id=id_profesional).update(
+            estado=self.model.Estado.CERRADO,
+            fecha_cierre=timezone.now(),
+        )
+
     # ----------------------------------------------------------------
     # Interno
     # ----------------------------------------------------------------

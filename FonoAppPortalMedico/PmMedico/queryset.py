@@ -124,6 +124,78 @@ class PM_ProfesionalQueryset(models.QuerySet):
         filas_actualizadas = self.filter(id_profesional=id_profesional).update(estado_cuenta_profesional=False)
         return filas_actualizadas > 0
 
+    # ----------------------------------------------------------------
+    # Habilitar / deshabilitar (administración)
+    # ----------------------------------------------------------------
+
+    @transaction.atomic
+    def deshabilitar(self, id_profesional, motivo=''):
+        """
+        Da de baja la cuenta de un profesional y deja su agenda en orden.
+
+        Deshabilitar no es solo cerrarle la puerta: mientras la cuenta siga
+        activa en la base, sus horas se siguen ofreciendo, sus pacientes
+        siguen esperando la cita del jueves y su plan de terapia les sigue
+        pidiendo videos. Por eso la baja, en un solo paso:
+
+          - marca la cuenta como inactiva (no puede iniciar sesión y sale del
+            directorio, que ya filtra por activos()),
+          - cancela sus citas futuras, sin exigir la anticipación mínima,
+          - retira sus bloques de horario futuros,
+          - cierra sus planes de terapia activos.
+
+        Devuelve (resumen, error). El resumen trae las citas canceladas para
+        que la vista le avise por correo a cada paciente: el envío va fuera de
+        esta transacción, porque un correo no se puede "deshacer" si algo
+        falla después.
+
+        El historial no se toca: citas pasadas, videos y retroalimentación
+        quedan donde están.
+        """
+        from PmCita.models import PmCita, PmDisponibilidad
+        from PmTerapia.models import PmPlanTerapia
+
+        profesional = self.filter(id_profesional=id_profesional).first()
+        if not profesional:
+            return None, 'Profesional no encontrado.'
+        if not profesional.estado_cuenta_profesional:
+            return None, 'La cuenta de ese profesional ya está deshabilitada.'
+
+        profesional.estado_cuenta_profesional = False
+        profesional.save(update_fields=['estado_cuenta_profesional', 'fecha_actualizacion'])
+
+        citas_canceladas = PmCita.objects.cancelar_todas_de_profesional(id_profesional, motivo)
+        bloques_retirados = PmDisponibilidad.objects.retirar_todos_de_profesional(id_profesional)
+        planes_cerrados = PmPlanTerapia.objects.cerrar_todos_de_profesional(id_profesional)
+
+        return {
+            'profesional': profesional,
+            'citas_canceladas': citas_canceladas,
+            'bloques_retirados': bloques_retirados,
+            'planes_cerrados': planes_cerrados,
+        }, None
+
+    def habilitar(self, id_profesional):
+        """
+        Reactiva la cuenta: vuelve a poder iniciar sesión y, si su acreditación
+        sigue aprobada, reaparece en el directorio.
+
+        No restaura nada de lo que la baja deshizo. Las citas canceladas ya se
+        les avisaron a los pacientes y varias de esas horas pueden estar
+        tomadas por otro profesional; resucitarlas crearía choques de agenda y
+        citas que el paciente daba por muertas. Las horas se vuelven a publicar
+        y los planes a asignar, que es trabajo de minutos.
+        """
+        profesional = self.filter(id_profesional=id_profesional).first()
+        if not profesional:
+            return None, 'Profesional no encontrado.'
+        if profesional.estado_cuenta_profesional:
+            return None, 'La cuenta de ese profesional ya está habilitada.'
+
+        profesional.estado_cuenta_profesional = True
+        profesional.save(update_fields=['estado_cuenta_profesional', 'fecha_actualizacion'])
+        return profesional, None
+
 
 # =========================================================
 # PM_ACREDITACION
