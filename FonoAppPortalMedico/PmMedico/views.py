@@ -12,9 +12,11 @@ from PmMedico.serializer import (
     PM_ProfesionalRegistroSerializer, PM_ProfesionalSerializer, PM_ProfesionalDirectorioSerializer,
     PM_ProfesionalLoginSerializer, PM_ProfesionalCambiarPasswordSerializer,
     PM_AcreditacionSerializer, PM_ResolverAcreditacionSerializer,
+    PM_DeshabilitarProfesionalSerializer,
     PM_Documento_RespaldoSerializer,
     PM_EspecialidadSerializer, PM_Profesional_especialidadSerializer,
 )
+from PmMedico.correos import enviar_aviso_baja_profesional
 from Security.permissions import EsAdministrador, EsProfesional, es_dueno_del_recurso
 
 
@@ -275,6 +277,66 @@ def acreditacion_resolver(request, id_acreditacion):
         return Response({'error': error}, status=codigo)
 
     return Response(PM_AcreditacionSerializer(acreditacion).data)
+
+
+# =========================================================================
+# ESTADO DE LA CUENTA (habilitar / deshabilitar, solo Admin)
+# =========================================================================
+
+@api_view(['PATCH'])
+@permission_classes([EsAdministrador])
+def profesional_deshabilitar(request, id_profesional):
+    """
+    Da de baja la cuenta de un profesional: deja de poder entrar y de aparecer
+    en el directorio, se le cancelan las citas futuras, se retiran sus horas
+    publicadas y se cierran sus planes de terapia.
+    Body: {"motivo": "..."} (opcional, viaja en el correo a los pacientes)
+    """
+    entrada = PM_DeshabilitarProfesionalSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+    motivo = entrada.validated_data['motivo'].strip()
+
+    resumen, error = PM_Profesional.objects.deshabilitar(id_profesional, motivo)
+
+    if error:
+        codigo = status.HTTP_404_NOT_FOUND if 'no encontrado' in error.lower() else status.HTTP_400_BAD_REQUEST
+        return Response({'error': error}, status=codigo)
+
+    # Los correos van fuera de la transacción de la baja: si alguno falla, la
+    # baja igual quedó hecha. Cada aviso se registra por su cuenta y ninguno
+    # interrumpe a los demás.
+    avisados = sum(
+        1 for cita in resumen['citas_canceladas']
+        if enviar_aviso_baja_profesional(cita, motivo)
+    )
+
+    return Response({
+        'mensaje': 'Cuenta deshabilitada correctamente.',
+        'profesional': PM_ProfesionalSerializer(resumen['profesional']).data,
+        'citas_canceladas': len(resumen['citas_canceladas']),
+        'pacientes_avisados': avisados,
+        'bloques_retirados': resumen['bloques_retirados'],
+        'planes_cerrados': resumen['planes_cerrados'],
+    })
+
+
+@api_view(['PATCH'])
+@permission_classes([EsAdministrador])
+def profesional_habilitar(request, id_profesional):
+    """
+    Reactiva una cuenta dada de baja. No devuelve las citas canceladas ni las
+    horas retiradas: el profesional vuelve a publicar su agenda.
+    """
+    profesional, error = PM_Profesional.objects.habilitar(id_profesional)
+
+    if error:
+        codigo = status.HTTP_404_NOT_FOUND if 'no encontrado' in error.lower() else status.HTTP_400_BAD_REQUEST
+        return Response({'error': error}, status=codigo)
+
+    return Response({
+        'mensaje': 'Cuenta habilitada correctamente.',
+        'profesional': PM_ProfesionalSerializer(profesional).data,
+    })
 
 
 # =========================================================================

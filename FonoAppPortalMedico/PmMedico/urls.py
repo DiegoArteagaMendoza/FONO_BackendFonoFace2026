@@ -49,6 +49,21 @@ urlpatterns = [
     path('directorio/', views.profesional_directorio, name='profesional-directorio'),
 
     # =====================================================================
+    # ESTADO DE LA CUENTA (habilitar / deshabilitar)
+    # =====================================================================
+
+    # MÉTODO: PATCH | URL: /api/pm/medicos/<id_profesional>/deshabilitar/
+    # Requiere: Bearer <token administrador> | BODY: {"motivo": "..."} (opcional)
+    # Da de baja la cuenta: cancela sus citas futuras avisando por correo a cada
+    # paciente, retira sus horas publicadas y cierra sus planes de terapia.
+    path('<int:id_profesional>/deshabilitar/', views.profesional_deshabilitar, name='profesional-deshabilitar'),
+
+    # MÉTODO: PATCH | URL: /api/pm/medicos/<id_profesional>/habilitar/
+    # Requiere: Bearer <token administrador>
+    # Reactiva la cuenta. No devuelve las citas canceladas ni las horas retiradas.
+    path('<int:id_profesional>/habilitar/', views.profesional_habilitar, name='profesional-habilitar'),
+
+    # =====================================================================
     # DOCUMENTOS DE RESPALDO
     # =====================================================================
 

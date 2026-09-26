@@ -174,6 +174,8 @@ Registro, acreditación, especialidades y directorio público de fonoaudiólogos
   - Solo `EsAdministrador` puede invocarla (ver nota de precisión en sección 6: no está restringido al rol máximo real, aunque el comentario del código lo sugiera).
 - **Asignar especialidad**: si la especialidad tiene `especialidad_requiere_certificado=True`, el profesional debe tener **al menos un documento ya validado** antes de poder reclamarla (no se exige que el documento sea específicamente de esa especialidad, solo que exista al menos uno validado).
 - **Directorio público** (`verificados()`): solo profesionales con `estado_cuenta_profesional=True` **y** al menos una acreditación en `APROBADO`.
+- **Deshabilitar una cuenta** (`deshabilitar`, solo administrador): apagar la cuenta a secas dejaría al profesional fuera pero su agenda en pie — sus horas siguen ofreciéndose y sus pacientes esperando la cita del jueves. Por eso la baja, en una sola transacción: marca la cuenta inactiva, **cancela sus citas futuras** (`PmCita_Queryset.cancelar_todas_de_profesional`, que a propósito **no** exige la anticipación mínima: esa hora tampoco se va a atender), **retira sus bloques de horario futuros** y **cierra sus planes de terapia activos**. Devuelve el resumen con las citas canceladas para que la vista le avise a cada paciente por correo (`PmMedico/correos.py`); los envíos van **fuera** de la transacción. El historial no se toca.
+- **Habilitar una cuenta** (`habilitar`): solo reactiva el acceso. No resucita citas ni horas: a esos pacientes ya se les avisó y varias de esas horas pueden estar tomadas por otro profesional. Volver a publicar la agenda es trabajo de minutos; una cita zombi no.
 
 ### 7.3 Endpoints
 
@@ -188,6 +190,8 @@ Registro, acreditación, especialidades y directorio público de fonoaudiólogos
 | GET | `listar/?estado_verificacion=` | Admin | Listado administrativo filtrable |
 | GET | `<id_profesional>/` | Admin | Detalle administrativo |
 | GET | `directorio/` | Público | Directorio de profesionales `verificados()` |
+| PATCH | `<id_profesional>/deshabilitar/` | Admin | Da de baja la cuenta con todo lo que arrastra (ver 7.2) |
+| PATCH | `<id_profesional>/habilitar/` | Admin | Reactiva la cuenta; no revierte lo anterior |
 | POST | `documentos/subir/` | Profesional | Multipart; primer documento pasa la acreditación a `EN_REVISION` |
 | DELETE | `documentos/<id_documento>/eliminar/` | Profesional | Solo si el documento propio no está validado |
 | GET | `<id_profesional>/documentos/` | Admin | Lista documentos de un profesional |
@@ -435,7 +439,7 @@ Fonoaudiólogo (`EsProfesional`):
 | GET | `planes/de-cita/<id_cita>/` | `{plan\|null, paciente_nombre, paciente_tiene_cuenta, cita_realizada}` — lo que necesita la agenda para ofrecer "asignar" o "ajustar" |
 | GET | `planes/<id>/seguimiento/` | Detalle más `periodos_cerrados: [{numero, desde, hasta, cumplido, faltan}]` |
 | GET | `planes/<id>/videos/` | Historial completo del plan, vencidos incluidos (sin URL), del más nuevo al más viejo |
-| PATCH | `videos/<id>/retroalimentar/` | `{retroalimentacion}`; vacío la borra; funciona sobre videos vencidos |
+| PATCH | `videos/<id>/retroalimentar/` | `{retroalimentacion}`; vacío la borra; funciona sobre videos vencidos. Con texto, **le avisa al paciente por correo** (también al corregir); borrar no avisa. El envío no condiciona la respuesta |
 
 Paciente (`EsCliente`):
 

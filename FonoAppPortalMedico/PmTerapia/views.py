@@ -7,6 +7,7 @@ from django.utils import timezone
 from Security.permissions import EsProfesional, EsCliente
 from Security.archivos import guardar_o_400, borrar_de_cloudinary
 from PmCita.models import PmCita
+from PmTerapia.correos import enviar_aviso_retroalimentacion
 from PmTerapia.models import PmEjercicio, PmPlanTerapia, PmVideoProgreso
 from PmTerapia.serializer import (
     PmEjercicioSerializer,
@@ -388,10 +389,14 @@ def video_retroalimentar(request, id_video):
     Escribe o corrige la retroalimentación de un video. Con texto vacío se
     borra. Funciona también sobre videos vencidos: el archivo ya no está, pero
     el paciente sigue leyendo el comentario.
+
+    Cuando queda texto se le avisa al paciente por correo, también si es una
+    corrección de lo anterior. Borrar no avisa: no hay nada que leer.
     """
     video = (PmVideoProgreso.objects
              .filter(pk=id_video, plan_ejercicio__plan__profesional_id=request.user.pk)
-             .select_related('plan_ejercicio__ejercicio')
+             .select_related('plan_ejercicio__ejercicio', 'plan_ejercicio__plan__cliente',
+                             'plan_ejercicio__plan__profesional')
              .first())
     if not video:
         return Response({'error': 'El video no existe o no es de un plan tuyo.'}, status=status.HTTP_404_NOT_FOUND)
@@ -404,5 +409,10 @@ def video_retroalimentar(request, id_video):
     video.retroalimentacion = texto or None
     video.fecha_retroalimentacion = timezone.now() if texto else None
     video.save(update_fields=['retroalimentacion', 'fecha_retroalimentacion'])
+
+    # El correo no condiciona la respuesta: si el SMTP está caído, la
+    # retroalimentación igual quedó guardada y el paciente la ve en el portal.
+    if texto:
+        enviar_aviso_retroalimentacion(video)
 
     return Response(PmVideoProgresoSerializer(video).data, status=status.HTTP_200_OK)
