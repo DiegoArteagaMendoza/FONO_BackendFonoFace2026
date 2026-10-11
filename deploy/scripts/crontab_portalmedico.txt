@@ -1,0 +1,48 @@
+# Cron Jobs del Portal Médico (FonoAppPortalMedico). Son DOS tareas, cada una
+# en su propio Cron Job de cPanel:
+#
+#   1. limpiar_videos_vencidos       purga los videos que cumplieron su vigencia:
+#                                    síntomas (PmVideo, 30 días) y progreso de
+#                                    terapia (PmVideoProgreso, 7 días). Los videos
+#                                    de ejemplo de los ejercicios no vencen.
+#                                    (PmVideo/management/commands/limpiar_videos_vencidos.py)
+#
+#   2. enviar_recordatorios_terapia  manda un correo al paciente cuyo último
+#                                    periodo de terapia cerró sin todos sus
+#                                    videos. Un correo por periodo, nunca dos.
+#                                    (PmTerapia/management/commands/enviar_recordatorios_terapia.py)
+#
+# CÓMO USARLO en cPanel: Software → "Cron Jobs" → Add New Cron Job, dos veces.
+#   - Minute / Hour / Day / Month / Weekday: los valores de cada línea de abajo
+#     (o Common Settings: "Once Per Day" y luego ajustar la hora).
+#   - Command: el resto de la línea, reemplazando las rutas por las reales de
+#     tu Application root y de tu virtualenv (mismas rutas que usaste al crear
+#     la app en "Setup Python App").
+#
+# Ejemplo (ajustar "usuario" y "3.12"). La hora es la del servidor; ver nota.
+
+# 1. Limpieza de videos vencidos: todos los días a las 03:30.
+30 3 * * * /home/usuario/virtualenv/portalmedico/3.12/bin/python /home/usuario/portalmedico/manage.py limpiar_videos_vencidos >> /home/usuario/portalmedico/logs/limpiar_videos.log 2>&1
+
+# 2. Recordatorios de terapia: todos los días a las 09:00 hora de Chile.
+0 9 * * * TZ=America/Santiago /home/usuario/virtualenv/portalmedico/3.12/bin/python /home/usuario/portalmedico/manage.py enviar_recordatorios_terapia >> /home/usuario/portalmedico/logs/recordatorios_terapia.log 2>&1
+
+# Notas:
+# - Usar la ruta ABSOLUTA al intérprete Python del virtualenv (no "python" a
+#   secas): cPanel no activa el virtualenv en el entorno de cron por defecto.
+# - Crear antes la carpeta de logs si no existe: mkdir -p /home/usuario/portalmedico/logs
+# - Los periodos de terapia se calculan siempre en hora de Chile, con
+#   independencia del reloj del servidor. El "TZ=America/Santiago" de la
+#   segunda línea solo fija a qué hora LOCAL corre el cron: si el hosting está
+#   en otra zona, sin él las 09:00 serían las 09:00 de allá. Si cPanel no
+#   acepta la variable delante del comando, quitarla y elegir la hora
+#   equivalente en la zona del servidor; lo importante es que corra UNA vez al
+#   día, después de la medianoche chilena (así el periodo que cerró ayer ya
+#   cuenta como cerrado).
+# - Los recordatorios necesitan EMAIL_HOST y FRONTEND_URL configurados en el
+#   .env del Portal Médico; sin EMAIL_HOST salen por consola (o sea, al log) y
+#   no le llegan a nadie.
+# - Para probar sin borrar ni enviar nada, correr una vez a mano (Terminal de
+#   cPanel, si está disponible) con --simular:
+#     /home/usuario/virtualenv/portalmedico/3.12/bin/python manage.py limpiar_videos_vencidos --simular
+#     /home/usuario/virtualenv/portalmedico/3.12/bin/python manage.py enviar_recordatorios_terapia --simular

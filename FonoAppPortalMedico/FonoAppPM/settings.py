@@ -19,10 +19,11 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Carga variables desde FonoAppPortalMedico/.env (no sobreescribe variables ya definidas
-# en el entorno real, por lo que en producción basta con exportar las variables del
-# proveedor de hosting).
-load_dotenv(BASE_DIR / '.env')
+# Carga variables desde el .env centralizado en la raíz del repo (compartido con FonoApp,
+# ver Backend_Fono/.env y Backend_Fono/.env.example) — no sobreescribe variables ya definidas
+# en el entorno real, por lo que en despliegue basta con exportar las variables del proveedor
+# de hosting (ver FonoAppPortalMedico/.env.develop).
+load_dotenv(BASE_DIR.parent / '.env')
 
 
 def env_bool(nombre, default=False):
@@ -41,11 +42,12 @@ def env_list(nombre, default=''):
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # IMPORTANTE: este proyecto (Portal Médico) y el proyecto principal FonoApp comparten
-# la misma base de datos PostgreSQL (ver docker-compose.yml) y los administradores
-# inician sesión únicamente en FonoApp. Para que un JWT emitido por el login de
-# FonoApp sea válido aquí (por ejemplo, para aprobar acreditaciones), el SECRET_KEY
-# de ambos proyectos DEBE ser el mismo. En despliegue, define la misma variable de
-# entorno SECRET_KEY en ambos servicios.
+# la misma base de datos y los administradores inician sesión únicamente en FonoApp.
+# Para que un JWT emitido por el login de FonoApp sea válido aquí (por ejemplo, para
+# aprobar acreditaciones), el SECRET_KEY de ambos proyectos DEBE ser el mismo. En
+# desarrollo local ambos leen el mismo .env centralizado en la raíz del repo (ver
+# Backend_Fono/.env), así que esto ya viene garantizado; en despliegue, define la
+# misma variable de entorno SECRET_KEY en ambos servicios (ver .env.develop por proyecto).
 SECRET_KEY = os.environ.get(
     'SECRET_KEY',
     'django-insecure-)dj+y&$f2+q)elr0c!&k2fo^*^y+l$p*&l+civ#k3)fx959a0%'
@@ -73,12 +75,15 @@ DEV_APPS = [
     'PmCliente',
     'PmCita',
     'PmVideo',
+    'PmTerapia',
 ]
 
 FRAMEWORKS = [
     'rest_framework',
     'corsheaders',
-    'rest_framework_simplejwt'
+    'rest_framework_simplejwt',
+    'cloudinary_storage',
+    'cloudinary',
 ]
 
 INSTALLED_APPS = DEV_APPS + BASE_APPS + FRAMEWORKS
@@ -86,6 +91,12 @@ INSTALLED_APPS = DEV_APPS + BASE_APPS + FRAMEWORKS
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Sirve los archivos de STATIC_ROOT directamente desde el proceso Django. Hace
+    # falta en cPanel/Passenger porque ahí no hay un Nginx/Apache al frente que
+    # sirva estáticos aparte (a diferencia de 'runserver' en desarrollo, donde
+    # django.contrib.staticfiles ya los sirve solo con DEBUG=True). Va justo
+    # después de SecurityMiddleware, como pide la documentación de whitenoise.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -115,12 +126,48 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'FonoAppPM.wsgi.application'
 
+# Credenciales de Cloudinary (almacenamiento de videos de síntomas y documentos
+# de respaldo). Salen del .env de la raíz del repo, NUNCA del código: son las
+# mismas para FonoApp y este proyecto, igual que DATABASE_URL y SECRET_KEY.
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY', ''),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', ''),
+}
+
+# CloudinaryField (los campos de los modelos) no lee CLOUDINARY_STORAGE: usa la
+# configuración global del SDK, que se fija aquí. secure=True para que las URLs
+# generadas sean siempre https.
+import cloudinary
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_STORAGE['CLOUD_NAME'],
+    api_key=CLOUDINARY_STORAGE['API_KEY'],
+    api_secret=CLOUDINARY_STORAGE['API_SECRET'],
+    secure=True,
+)
+
+# NOTA: DEFAULT_FILE_STORAGE ya no existe en Django 6 (se eliminó en 5.1); si se
+# define, se ignora en silencio. El almacenamiento por defecto se declara en el
+# diccionario STORAGES, más abajo en este archivo.
+
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-# Misma base de datos física que FonoApp (ver docker-compose.yml en la raíz del repo):
+# Misma base de datos física que FonoApp (ver DATABASE_URL en el .env de la raíz del repo):
 # aquí viven, entre otras, la tabla FonoApp_Administracion que PmMedico consulta
 # (de solo lectura, vía un modelo no gestionado) para saber quién es administrador.
+# Motor de base de datos: 'postgresql' (default) o 'mysql' (usado tanto en desarrollo
+# local como en el despliegue en cPanel, ver deploy/mysql/). Definir DB_ENGINE=mysql
+# solo afecta al camino DB_* de abajo; con DATABASE_URL el motor se detecta
+# solo por el esquema de la URL ("postgres://" o "mysql://").
+DB_ENGINE = os.environ.get('DB_ENGINE', 'postgresql').strip().lower()
+
+_ENGINES = {
+    'postgresql': 'django.db.backends.postgresql',
+    'mysql': 'django.db.backends.mysql',
+}
+
 if os.environ.get('DATABASE_URL'):
     import dj_database_url
 
@@ -128,20 +175,49 @@ if os.environ.get('DATABASE_URL'):
         'default': dj_database_url.parse(
             os.environ['DATABASE_URL'],
             conn_max_age=600,
+            # Sin esto, Django reutiliza durante 10 minutos una conexion que el
+            # MySQL remoto pudo cerrar antes por inactividad (su wait_timeout es
+            # menor), y la peticion muere con
+            # "(2006, 'MySQL server has gone away')". Pasa sobre todo en la
+            # primera visita despues de un rato sin trafico.
+            # conn_health_checks hace que Django compruebe que la conexion sigue
+            # viva antes de reutilizarla, y la reabra si no; se conserva el
+            # pooling sin arrastrar conexiones muertas.
+            conn_health_checks=True,
             ssl_require=env_bool('DATABASE_SSL_REQUIRE', not DEBUG),
         )
     }
+    if DATABASES['default']['ENGINE'] == 'django.db.backends.mysql':
+        DATABASES['default'].setdefault('OPTIONS', {})
+        DATABASES['default']['OPTIONS'].setdefault('charset', 'utf8mb4')
+        DATABASES['default']['OPTIONS'].setdefault(
+            'init_command', "SET sql_mode='STRICT_TRANS_TABLES'"
+        )
+        # dj_database_url agrega OPTIONS['sslmode']='require' cuando ssl_require=True
+        # (por defecto en producción, ver env_bool de arriba), pero 'sslmode' es un
+        # nombre de psycopg2/Postgres: ni PyMySQL ni mysqlclient lo aceptan como
+        # argumento de conexión y Django revienta con
+        # "Connection.__init__() got an unexpected keyword argument 'sslmode'".
+        # cPanel expone MySQL en localhost sin TLS, así que de todas formas no aplica.
+        DATABASES['default']['OPTIONS'].pop('sslmode', None)
 else:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.postgresql',
+            'ENGINE': _ENGINES.get(DB_ENGINE, _ENGINES['postgresql']),
             'NAME': os.environ.get('DB_NAME', 'fonoDevDB'),
             'USER': os.environ.get('DB_USER', 'admin'),
             'PASSWORD': os.environ.get('DB_PASSWORD', 'secret'),
             'HOST': os.environ.get('DB_HOST', 'localhost'),
-            'PORT': os.environ.get('DB_PORT', '5432'),
+            'PORT': os.environ.get('DB_PORT', '5432' if DB_ENGINE == 'postgresql' else '3306'),
         }
     }
+    if DB_ENGINE == 'mysql':
+        # utf8mb4 (no utf8 a secas) para soportar el set de caracteres completo
+        # de Unicode (tildes, ñ, emoji en campos de texto libre).
+        DATABASES['default']['OPTIONS'] = {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        }
 
 
 # Password validation
@@ -180,6 +256,33 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Carpeta donde 'collectstatic' junta los estáticos de todas las apps (propios +
+# los de django.contrib.admin y rest_framework) para servirlos en producción.
+# Sin esto, 'python manage.py collectstatic' falla con
+# "ImproperlyConfigured: ... without having set the STATIC_ROOT setting".
+# En desarrollo (runserver) no se usa: django.contrib.staticfiles los sirve
+# directo desde cada app mientras DEBUG=True, sin necesidad de recolectarlos.
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Compresión + serving de esos estáticos vía WhiteNoiseMiddleware (ver MIDDLEWARE).
+# Se usa la variante "Compressed" (no "CompressedManifest") a propósito: la
+# variante con manifiesto exige que cada estático referenciado en templates/CSS
+# exista sin errores en el primer collectstatic, y falla duro si no — con
+# "Compressed" a secas el despliegue no se cae por un estático de una librería
+# de terceros mal referenciado.
+STORAGES = {
+    # Archivos subidos: Cloudinary (equivalente en Django 6 del antiguo
+    # DEFAULT_FILE_STORAGE). Los campos CloudinaryField suben por el SDK sin
+    # pasar por aquí, pero cualquier FileField/ImageField que se agregue en el
+    # futuro debe ir a la nube también, no al disco del hosting.
+    'default': {
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
+
 """
     MANEJO DE ARCHIVOS (documentos de respaldo de los profesionales y
     videos de síntomas de los pacientes)
@@ -200,6 +303,13 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Solo se aplica donde la vista lo pide con @throttle_classes; no hay
+    # límite por defecto para el resto.
+    'DEFAULT_THROTTLE_RATES': {
+        # Subida de video con el código de seguimiento (PmVideo/views.py).
+        # Es el único endpoint anónimo que recibe archivos pesados.
+        'pm_video_subida_codigo': os.environ.get('PM_VIDEO_SUBIDA_POR_CODIGO', '10/hour'),
+    },
 }
 
 # JWT config (debe coincidir con la de FonoApp para que los tokens de administrador
@@ -212,3 +322,43 @@ SIMPLE_JWT = {
 
 # Tamaño máximo de archivo aceptado para los documentos de respaldo (en MB).
 PM_MEDICO_DOCUMENTO_MAX_MB = int(os.environ.get('PM_MEDICO_DOCUMENTO_MAX_MB', 5))
+
+# ---------------------------------------------------------------------------
+# CORREO
+# ---------------------------------------------------------------------------
+# Se usa para avisar al paciente de su cita y enviarle el código de seguimiento
+# (ver PmCita/correos.py). En desarrollo, si no se define EMAIL_HOST, los
+# correos se imprimen en la consola en vez de enviarse: así el flujo completo se
+# puede probar sin un servidor SMTP, y nadie manda correos de prueba a
+# direcciones reales por accidente.
+if os.environ.get('EMAIL_HOST'):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ['EMAIL_HOST']
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+    EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Vocare UBB <no-responder@vocare-ubb.cl>')
+
+# Base pública del frontend, para armar los enlaces que van dentro de los
+# correos (seguimiento de la cita, "Mi terapia", directorio). El valor por
+# defecto solo sirve en desarrollo; en el hosting hay que definir FRONTEND_URL
+# con el dominio real (en develop, https://dev.vocare-ubb.cl).
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:4200').rstrip('/')
+
+# Con DEBUG=False y FRONTEND_URL apuntando al equipo local, los correos salen
+# con enlaces que nadie puede abrir. Es un error de configuración silencioso:
+# todo "funciona", pero el paciente recibe un enlace muerto. Queda anotado en
+# el log del servidor al arrancar, que es donde se va a buscar.
+if not DEBUG and ('localhost' in FRONTEND_URL or '127.0.0.1' in FRONTEND_URL):
+    import logging
+
+    logging.getLogger(__name__).warning(
+        'FRONTEND_URL apunta a %s con DEBUG=False: los enlaces de los correos '
+        'no funcionarán. Defina FRONTEND_URL con el dominio real del portal.',
+        FRONTEND_URL,
+    )

@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from Security.archivos import url_absoluta
 from PmMedico.models import (
     PM_Profesional,
     PM_Acreditacion,
@@ -62,6 +63,16 @@ class PM_Documento_RespaldoSerializer(serializers.ModelSerializer):
             'documento_profesional_valido',
         ]
 
+    def to_representation(self, instance):
+        """
+        El documento es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que el
+        administrador pueda abrir el PDF desde el panel.
+        """
+        datos = super().to_representation(instance)
+        datos['url_documento_profesional'] = url_absoluta(instance.url_documento_profesional)
+        return datos
+
     def create(self, validated_data):
         profesional = self.context['request'].user
         return PM_Documento_Respaldo.objects.subir_documento(
@@ -88,6 +99,14 @@ class PM_AcreditacionSerializer(serializers.ModelSerializer):
 class PM_ResolverAcreditacionSerializer(serializers.Serializer):
     """Solo usado para validar el body del endpoint de aprobar/rechazar."""
     estado_verificacion_profesional = serializers.ChoiceField(choices=['APROBADO', 'RECHAZADO'])
+
+
+class PM_DeshabilitarProfesionalSerializer(serializers.Serializer):
+    """
+    Body al deshabilitar una cuenta. El motivo es opcional pero llega al correo
+    de los pacientes cuya hora se cancela, así que conviene escribirlo.
+    """
+    motivo = serializers.CharField(required=False, allow_blank=True, default='', max_length=500)
 
 
 # =========================================================

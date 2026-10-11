@@ -1,10 +1,21 @@
 from rest_framework import serializers
 from FonoAppAdministracion.models import FonoApp_Administracion, FonoApp_Banner_Inicio, FonoApp_Banner_Inicio_Imagenes
+from FonoAppFunciones.archivos import url_absoluta
 
 class FonoApp_Banner_ImagenSerializer(serializers.ModelSerializer):
     class Meta:
         model = FonoApp_Banner_Inicio_Imagenes
         fields = ['id', 'imagen', 'fecha_subida']
+
+    def to_representation(self, instance):
+        """
+        La imagen es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que
+        el carrusel del inicio pueda mostrarla.
+        """
+        datos = super().to_representation(instance)
+        datos['imagen'] = url_absoluta(instance.imagen)
+        return datos
 
 
 class FonoApp_Banner_InicioSerializer(serializers.ModelSerializer): 

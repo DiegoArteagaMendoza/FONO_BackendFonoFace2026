@@ -1,11 +1,8 @@
 from rest_framework import serializers
 
-from PmVideo.models import (
-    PmVideo,
-    DURACION_MAXIMA_SEGUNDOS,
-    TAMANO_MAXIMO_MB,
-    EXTENSIONES_PERMITIDAS,
-)
+from Security.archivos import url_absoluta
+from Security.validacion_video import validar_archivo, validar_duracion
+from PmVideo.models import PmVideo, DURACION_MAXIMA_SEGUNDOS, TAMANO_MAXIMO_MB
 
 
 class PmVideoSerializer(serializers.ModelSerializer):
@@ -45,13 +42,23 @@ class PmVideoSerializer(serializers.ModelSerializer):
             'cita': {'required': False, 'allow_null': True},
         }
 
+    def to_representation(self, instance):
+        """
+        El campo 'video' es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que el
+        <video> del frontend pueda reproducirlo directo.
+        """
+        datos = super().to_representation(instance)
+        datos['video'] = url_absoluta(instance.video)
+        return datos
+
     def validate(self, datos):
         """
         Si el video se asocia a una cita, esta debe pertenecer al mismo
         cliente, admitir la carga de video y seguir reservada (no cancelada
         ni ya realizada).
         """
-        cita = datos.get('cita')
+        cita = datos.get('cita') or self.context.get('cita')
 
         # OJO: 'cliente' es de solo lectura (el dueño se toma del token en la
         # vista), así que NO llega dentro de 'datos'. La vista lo entrega por
@@ -71,34 +78,47 @@ class PmVideoSerializer(serializers.ModelSerializer):
 
         return datos
 
+    # Las reglas del archivo viven en Security/validacion_video.py, compartidas
+    # con los videos de terapia; aquí solo se ponen los límites de este tipo.
     def validate_duracion_segundos(self, value):
-        """El video no puede superar los 30 segundos."""
-        if value <= 0:
-            raise serializers.ValidationError('La duración debe ser mayor a 0 segundos.')
-
-        if value > DURACION_MAXIMA_SEGUNDOS:
-            raise serializers.ValidationError(
-                f'El video no puede durar más de {DURACION_MAXIMA_SEGUNDOS} segundos '
-                f'(el enviado dura {value}).'
-            )
-        return value
+        return validar_duracion(value, DURACION_MAXIMA_SEGUNDOS)
 
     def validate_video(self, archivo):
-        """Valida el formato y el peso del archivo subido."""
-        nombre = archivo.name.lower()
-        extension = nombre.rsplit('.', 1)[-1] if '.' in nombre else ''
+        return validar_archivo(archivo, TAMANO_MAXIMO_MB)
 
-        if extension not in EXTENSIONES_PERMITIDAS:
-            raise serializers.ValidationError(
-                f'Formato no permitido (.{extension}). '
-                f'Use uno de estos: {", ".join(EXTENSIONES_PERMITIDAS)}.'
-            )
 
-        tamano_maximo_bytes = TAMANO_MAXIMO_MB * 1024 * 1024
-        if archivo.size > tamano_maximo_bytes:
-            tamano_mb = archivo.size / (1024 * 1024)
-            raise serializers.ValidationError(
-                f'El video pesa {tamano_mb:.1f} MB y el máximo permitido es {TAMANO_MAXIMO_MB} MB.'
-            )
+class PmVideoSeguimientoSerializer(PmVideoSerializer):
+    """
+    El mismo video, visto por quien llega con su código de seguimiento y sin
+    sesión iniciada.
 
-        return archivo
+    Cambia en dos cosas respecto de PmVideoSerializer:
+
+    1. 'cita' es de solo lectura. La cita la resuelve la vista a partir del
+       código y viaja por contexto; si se aceptara desde el cuerpo, alguien con
+       un código válido podría colgar su video de la cita de otra persona.
+    2. No se entrega ningún identificador: ni 'cliente', ni 'cita', ni
+       'id_video'. Es la regla 4 del Specs y el mismo criterio de
+       PmCitaSeguimientoSerializer. El video se identifica por su cita, que ya
+       viene dada por el código, así que ningún id hace falta para gestionarlo.
+    """
+
+    class Meta(PmVideoSerializer.Meta):
+        fields = [
+            'video',
+            'descripcion',
+            'duracion_segundos',
+            'fecha_subida',
+            'fecha_expiracion',
+            'dias_restantes',
+            'esta_vigente',
+        ]
+        # Lo único que llega desde el formulario. Todo lo demás lo pone el
+        # servidor: la cita sale del código y el dueño, de esa cita.
+        read_only_fields = [
+            'fecha_subida',
+            'fecha_expiracion',
+            'dias_restantes',
+            'esta_vigente',
+        ]
+        extra_kwargs = {}

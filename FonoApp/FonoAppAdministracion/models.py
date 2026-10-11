@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from FonoAppAdministracion.queryset import FonoAPP_Manager, FonoApp_Banner_Queryset
+from cloudinary.models import CloudinaryField # Importación necesaria
 
 class FonoApp_Administracion(AbstractBaseUser, PermissionsMixin):
     id_usuario = models.AutoField("Codigo registro usuario", primary_key=True)
@@ -69,7 +70,11 @@ class FonoApp_Banner_Inicio_Imagenes(models.Model):
         on_delete=models.CASCADE,
         related_name='imagenes'
     )
-    imagen = models.ImageField(upload_to='banner/imagenes/', verbose_name='Imagen')
+    
+    # ACTUALIZACIÓN A CLOUDINARY
+    # Reemplaza models.ImageField(upload_to='banner/imagenes/')
+    imagen = CloudinaryField('imagen', folder='banner_imagenes') 
+    
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
     class Meta:

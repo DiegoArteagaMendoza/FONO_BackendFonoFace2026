@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from FonoAppVoz.models import FonoApp_Voz
+from FonoAppFunciones.archivos import url_absoluta
 
 class FonoApp_VozSerializer(serializers.ModelSerializer):
     # Entrega el string legible del Enum (ej: "Anatomía" en vez de "ANATOMIA")
@@ -12,6 +13,16 @@ class FonoApp_VozSerializer(serializers.ModelSerializer):
             'contenido', 'img', 'fuente', 'estado', 'FonoApp_Administracion'
         ]
         read_only_fields = ['id_voz', 'estado', 'FonoApp_Administracion']
+
+    def to_representation(self, instance):
+        """
+        La imagen es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que
+        la seccion de la voz pueda mostrarla.
+        """
+        datos = super().to_representation(instance)
+        datos['img'] = url_absoluta(instance.img)
+        return datos
 
     def create(self, validated_data):
         usuario = self.context['request'].user

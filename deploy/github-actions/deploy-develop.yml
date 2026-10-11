@@ -1,0 +1,187 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Despliegue automático del entorno DEVELOP (dev-api.vocare-ubb.cl y
+# dev-portal.vocare-ubb.cl) en cada push a la rama `develop`. Basado en
+# deploy/github-actions/deploy.yml (pensado originalmente para una rama
+# "production" separada) pero adaptado a los valores reales que ya quedaron
+# funcionando en cPanel tras el despliegue manual de 2026-08-19 — ver la
+# memoria de la sesión / DOCUMENTACION_DESPLIEGUE.md.
+#
+# CÓMO ACTIVARLO:
+#   cp deploy/github-actions/deploy-develop.yml .github/workflows/deploy-develop.yml
+#
+# REQUISITO PREVIO — confirmar que hay SSH real (no solo el Terminal web de
+# cPanel, que puede o no exponer un host:puerto alcanzable desde fuera):
+#   cPanel → Security → "SSH Access" → "Manage SSH Keys". Si esa sección no
+#   existe o da error, pedir a soporte de V2Networks que lo habilite. Ahí
+#   mismo confirmas el host y el puerto reales (casi nunca es el 22).
+#
+# LLAVE SSH DEDICADA para este pipeline (no reutilizar tu llave personal):
+#   ssh-keygen -t ed25519 -C "github-actions-deploy" -f deploy_key -N ""
+#   La pública (deploy_key.pub) se importa en "Manage SSH Keys" → Import Key
+#   → Authorize. La privada (deploy_key) va al secret SSH_PRIVATE_KEY de
+#   abajo — nunca se commitea al repo.
+#
+# SECRETS a definir en GitHub → Settings → Secrets and variables → Actions
+# (valores REALES ya confirmados en esta cuenta, salvo host/puerto/llave):
+#   SSH_HOST                    (confirmar en "Manage SSH Keys")
+#   SSH_PORT                    (confirmar en "Manage SSH Keys", NO asumir 22)
+#   SSH_USERNAME                liloqkav
+#   SSH_PRIVATE_KEY             contenido completo de deploy_key (privada)
+#   FONOAPP_REMOTE_PATH         /home/liloqkav/dev-api.vocare-ubb.cl
+#   FONOAPP_VENV_ACTIVATE       /home/liloqkav/virtualenv/dev-api.vocare-ubb.cl/3.12/bin/activate
+#   PORTALMEDICO_REMOTE_PATH    /home/liloqkav/dev-portal.vocare-ubb.cl
+#   PORTALMEDICO_VENV_ACTIVATE  /home/liloqkav/virtualenv/dev-portal.vocare-ubb.cl/3.12/bin/activate
+#
+# IMPORTANTE — Application root = nombre completo del subdominio (no
+# "fonoapp"/"portalmedico" a secas): así es como quedaron las apps reales en
+# cPanel después de corregir el desfase Document Root / Application root que
+# causaba 404 de LiteSpeed. Si alguna vez recreas las apps, respeta esa
+# convención o estas rutas de secrets dejan de coincidir.
+# ─────────────────────────────────────────────────────────────────────────
+name: Deploy a cPanel (develop)
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:  # permite lanzarlo a mano desde la pestaña Actions de GitHub
+
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false   # nunca cancelar un deploy a mitad de camino
+
+jobs:
+  test:
+    name: Tests antes de desplegar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Tests FonoApp
+        working-directory: FonoApp
+        run: python manage.py test
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+
+      - name: Tests FonoAppPortalMedico
+        working-directory: FonoAppPortalMedico
+        run: python manage.py test
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+
+  deploy-fonoapp:
+    name: Deploy FonoApp (dev-api.vocare-ubb.cl)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sincronizar código (rsync sobre SSH)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "FonoApp/"
+          TARGET: ${{ secrets.FONOAPP_REMOTE_PATH }}
+          ARGS: "-avzr --delete"
+          # .htaccess SÍ se sincroniza a propósito (bloquea la descarga de
+          # código fuente, ver FonoApp/.htaccess) — no excluirlo.
+          EXCLUDE: "/.env, /media/, /passenger_wsgi.py, /tmp/, /FonoApp.zip, **/__pycache__, *.pyc"
+
+      - name: Sincronizar requirements.txt (vive un nivel más arriba en el monorepo)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "requirements.txt"
+          TARGET: ${{ secrets.FONOAPP_REMOTE_PATH }}
+          ARGS: "-avz"
+
+      - name: Instalar dependencias, migrar y reiniciar (Passenger)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            source ${{ secrets.FONOAPP_VENV_ACTIVATE }}
+            cd ${{ secrets.FONOAPP_REMOTE_PATH }}
+            pip install -r requirements.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            mkdir -p tmp
+            touch tmp/restart.txt
+
+  deploy-portalmedico:
+    name: Deploy FonoAppPortalMedico (dev-portal.vocare-ubb.cl)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sincronizar código (rsync sobre SSH)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "FonoAppPortalMedico/"
+          TARGET: ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+          ARGS: "-avzr --delete"
+          # .htaccess SÍ se sincroniza a propósito (bloquea la descarga de
+          # código fuente, ver FonoAppPortalMedico/.htaccess) — no excluirlo.
+          EXCLUDE: "/.env, /media/, /passenger_wsgi.py, /tmp/, **/__pycache__, *.pyc"
+
+      - name: Sincronizar requirements.txt (vive un nivel más arriba en el monorepo)
+        uses: easingthemes/ssh-deploy@v5
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          SOURCE: "requirements.txt"
+          TARGET: ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+          ARGS: "-avz"
+
+      - name: Instalar dependencias, migrar y reiniciar (Passenger)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            source ${{ secrets.PORTALMEDICO_VENV_ACTIVATE }}
+            cd ${{ secrets.PORTALMEDICO_REMOTE_PATH }}
+            pip install -r requirements.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            mkdir -p tmp
+            touch tmp/restart.txt
+
+# NOTAS:
+# - SECRET_KEY, DEBUG, ALLOWED_HOSTS, DATABASE_URL, RECAPTCHA_SECRET_KEY, etc.
+#   NO se manejan acá: ya están cargadas como variables de entorno en "Setup
+#   Python App" dentro de cPanel y persisten entre despliegues.
+# - "touch tmp/restart.txt" reinicia el proceso Passenger (mtime del archivo).
+#   NO recrea la asociación LiteSpeed↔Passenger — eso solo hace falta si se
+#   vuelve a crear la app desde cero, no en cada deploy normal.
+# - Si no hay SSH disponible, usar deploy-sftp.yml como base (mismo ajuste de
+#   rutas), aceptando que ahí no se puede migrar/collectstatic automático.

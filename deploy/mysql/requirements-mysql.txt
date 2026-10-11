@@ -11,7 +11,7 @@
 # compartido (cPanel "Setup Python App") normalmente NO hay compilador ni
 # headers de MySQL disponibles para el usuario, por lo que `pip install
 # mysqlclient` suele fallar ahí. PyMySQL evita ese problema por completo.
-PyMySQL==1.2.1
+PyMySQL==1.2.0
 
 # Si en algún entorno (ej. build local en Linux con las herramientas de compilación
 # instaladas) prefieres el driver oficial en C por rendimiento, puedes usar

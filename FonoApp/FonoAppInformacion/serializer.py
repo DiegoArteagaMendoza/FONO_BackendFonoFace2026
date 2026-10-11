@@ -1,11 +1,22 @@
 from rest_framework import serializers
 from FonoAppInformacion.models import FonoApp_Informacion, FonoApp_Informacion_Imagen
+from FonoAppFunciones.archivos import url_absoluta
 
 # 1. Serializer secundario para formatear la salida de las imágenes en el GET
 class FonoApp_Informacion_ImagenSerializer(serializers.ModelSerializer):
     class Meta:
         model = FonoApp_Informacion_Imagen
         fields = ['id', 'imagen', 'fecha_subida']
+
+    def to_representation(self, instance):
+        """
+        La imagen es un CloudinaryField: serializado tal cual entrega el
+        public_id, no una URL. Se reemplaza por la URL https real para que
+        las vistas de informacion puedan mostrarla.
+        """
+        datos = super().to_representation(instance)
+        datos['imagen'] = url_absoluta(instance.imagen)
+        return datos
 
 
 # 2. Serializer principal de la Información

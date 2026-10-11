@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from FonoAppNoticias.queryset import FonoApp_Noticias_Queryset
+from cloudinary.models import CloudinaryField # Importación necesaria
 
 class FonoApp_Noticias(models.Model):
     id_noticia = models.AutoField("Codigo noticia", primary_key=True)
@@ -64,7 +65,11 @@ class FonoApp_Noticia_Imagen(models.Model):
         on_delete=models.CASCADE, 
         related_name='imagenes' # Importante para el Serializer
     )
-    imagen = models.ImageField(upload_to='noticias/imagenes/', verbose_name='Imagen')
+    
+    # ACTUALIZACIÓN A CLOUDINARY
+    # Reemplaza models.ImageField(upload_to='noticias/imagenes/')
+    imagen = CloudinaryField('Imagen', folder='noticias_imagenes')
+    
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
     class Meta:

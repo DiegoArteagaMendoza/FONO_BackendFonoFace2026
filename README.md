@@ -14,9 +14,15 @@ los archivos listos para ese despliegue viven en la carpeta aislada [`deploy/`](
 
 ## Puesta en marcha rápida (desarrollo local)
 
+Las variables de entorno de desarrollo local están **centralizadas en un único `.env` en la raíz
+del repo** (junto a este README): tanto `FonoApp/` como `FonoAppPortalMedico/` lo leen (comparten
+base de datos y `SECRET_KEY`, ver `.env.example`). Por defecto apunta a la BDD MySQL "develop"
+compartida — no requiere levantar nada localmente.
+
 ```bash
-# 1. Levantar PostgreSQL + pgAdmin (desde la raíz del repo)
-docker-compose up -d
+# 1. Variables de entorno (desde la raíz del repo)
+cp .env.example .env
+# completar los valores reales (pedir las credenciales de la BDD develop al equipo)
 
 # 2. Entorno virtual compartido (desde la raíz del repo)
 source .venv/bin/activate
@@ -24,10 +30,13 @@ pip install -r requirements.txt
 
 # 3. Por cada proyecto (FonoApp/ y FonoAppPortalMedico/):
 cd FonoApp   # o FonoAppPortalMedico
-cp .env.example .env
 python manage.py migrate
 python manage.py runserver
 ```
+
+`docker-compose.yml` (PostgreSQL + pgAdmin) queda disponible como alternativa si en vez de la BDD
+develop compartida prefieres una base local propia: en ese caso, `docker-compose up -d` y define
+`DB_ENGINE=postgresql` con las variables `DB_*` (en vez de `DATABASE_URL`) en el `.env` de la raíz.
 
 Detalle completo de cada paso, variables de entorno y convenciones de código en la documentación
 de cada proyecto (tabla de arriba).

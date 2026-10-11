@@ -6,6 +6,7 @@ from rest_framework import status
 from FonoAppNoticias.models import FonoApp_Noticias, FonoApp_Noticia_Imagen, FonoApp_Newsletter
 from FonoAppNoticias.serializer import FonoApp_NoticiasSerializer, FonoApp_NewsletterSerializer
 from FonoAppFunciones.authentication import CustomJWTAuthentication
+from FonoAppFunciones.archivos import borrar_de_cloudinary
 
 @api_view(['GET'])
 @permission_classes([AllowAny]) # Lo dejo público para que cualquiera pueda leer las noticias, cámbialo a IsAuthenticated si es privado
@@ -113,8 +114,10 @@ def noticia_imagen_eliminar(request, id_imagen):
     """
     try:
         imagen = FonoApp_Noticia_Imagen.objects.get(id=id_imagen)
-        # 1. Borramos el archivo físico de la carpeta /media/noticias/imagenes/
-        imagen.imagen.delete(save=False) 
+        # 1. Borramos el archivo de Cloudinary. No sirve imagen.delete(save=False):
+        #    un CloudinaryField guarda un CloudinaryResource, que no tiene ese
+        #    metodo y lanzaria AttributeError.
+        borrar_de_cloudinary(imagen.imagen)
         # 2. Borramos el registro de la tabla FonoApp_Noticia_Imagen
         imagen.delete() 
         return Response({'mensaje': 'Imagen eliminada correctamente'}, status=status.HTTP_200_OK)

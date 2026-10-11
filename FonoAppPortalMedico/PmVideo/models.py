@@ -7,6 +7,10 @@ from django.utils import timezone
 from PmCliente.models import PmCliente
 from PmCita.models import PmCita
 from PmVideo.queryset import PmVideo_Queryset
+# Importación necesaria para Cloudinary
+from cloudinary.models import CloudinaryField
+
+from Security.archivos import borrar_de_cloudinary
 
 # ==========================================================================
 # REGLAS DEL NEGOCIO (centralizadas para no repetirlas en el código)
@@ -22,8 +26,9 @@ DIAS_VIGENCIA = 30
 # rondan los 15-40 MB según la calidad, por eso se deja en 50 MB.
 TAMANO_MAXIMO_MB = 50
 
-# Formatos aceptados
-EXTENSIONES_PERMITIDAS = ['mp4', 'webm', 'mov']
+# Formatos aceptados: los mismos para todo video del portal, definidos una vez
+# en Security/validacion_video.py. Se reexportan aquí para quien ya los importaba.
+from Security.validacion_video import EXTENSIONES_PERMITIDAS  # noqa: E402,F401
 
 
 class PmVideo(models.Model):
@@ -63,8 +68,15 @@ class PmVideo(models.Model):
         verbose_name='Cita a la que pertenece el video',
     )
 
-    # Archivo y contenido
-    video = models.FileField(upload_to='pm/videos/sintomas/', verbose_name='Video de síntomas')
+    # ACTUALIZACIÓN A CLOUDINARY
+    # Se usa resource_type='video' para que Cloudinary trate el archivo como
+    # material audiovisual (permite streaming, transcodificación, etc.)
+    video = CloudinaryField(
+        'video',
+        folder='pm/videos/sintomas/',
+        resource_type='video'
+    )
+    
     descripcion = models.TextField(blank=True, null=True, verbose_name='Descripción de los síntomas')
     duracion_segundos = models.PositiveIntegerField(verbose_name='Duración en segundos')
 
@@ -116,11 +128,17 @@ class PmVideo(models.Model):
 
     def eliminar_archivo_fisico(self):
         """
-        Borra el archivo del disco conservando el registro para trazabilidad.
+        Borra el archivo de Cloudinary conservando el registro para trazabilidad.
         Se usa tanto al vencer los 30 días como al eliminar por orden médica.
+
+        No sirve `self.video.delete(save=False)` como cuando esto era un
+        FileField: el valor de un CloudinaryField es un CloudinaryResource, que
+        no tiene ese método y lanza AttributeError. Con eso, el comando
+        limpiar_videos_vencidos se caía y los videos clínicos se habrían
+        quedado en la nube pasados los 30 días.
         """
         if self.video:
-            self.video.delete(save=False)
+            borrar_de_cloudinary(self.video)
 
     def __str__(self):
         return f'Video #{self.id_video} de {self.cliente} ({self.duracion_segundos}s)'

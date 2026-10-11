@@ -38,6 +38,47 @@ urlpatterns = [
     # -------------------------------------------------------------------------
     path('mis-videos/<int:id_video>/eliminar/', views.mi_video_eliminar, name='mi-video-eliminar'),
 
+    # =========================================================================
+    # QUIEN RESERVÓ SIN CUENTA: gestiona su video con el código del correo.
+    # Ninguno de estos tres pide token ni acepta ids: la cita sale del código y
+    # el dueño, de la cita.
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: GET | URL: /api/pm/videos/seguimiento/A1B2C3D4/
+    # HEADERS: Ninguno. El código hace de credencial.
+    # RESPUESTA: Arreglo con el video adjunto a esa hora (vacío si no hay).
+    #            No incluye id_video, id_cita ni id_cliente.
+    # ERRORES: 404 si el código no existe; 400 si la hora no admite video.
+    # -------------------------------------------------------------------------
+    path('seguimiento/<str:codigo>/', views.video_seguimiento_listar, name='video-seguimiento-listar'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST | URL: /api/pm/videos/seguimiento/A1B2C3D4/subir/
+    # BODY (IMPORTANTE): FormData (multipart/form-data), NO JSON.
+    # EN EL FRONTEND (Angular):
+    #   const formData = new FormData();
+    #   formData.append('video', archivoVideo);
+    #   formData.append('duracion_segundos', Math.round(video.duration));
+    #   formData.append('descripcion', 'Ronquera al hablar fuerte'); // opcional
+    #   -> Ni la cita ni el dueño se envían: salen del código de la URL.
+    # REGLAS: las mismas de siempre (30 s, 50 MB, mp4/webm/mov) y además uno
+    #         solo por hora: si ya hay uno vigente responde 409.
+    # LÍMITE: 10 subidas por hora y por IP (ajustable con la variable de entorno
+    #         PM_VIDEO_SUBIDA_POR_CODIGO). Supera eso y responde 429.
+    # RESPUESTA ESPERADA: El video creado (Status 201), sin ids.
+    # -------------------------------------------------------------------------
+    path('seguimiento/<str:codigo>/subir/', views.video_seguimiento_subir, name='video-seguimiento-subir'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: DELETE | URL: /api/pm/videos/seguimiento/A1B2C3D4/eliminar/
+    # BODY: Ninguno. No recibe el id del video: la hora ya lo determina.
+    # RESPUESTA ESPERADA: { "mensaje": "Video retirado correctamente" }
+    # ERRORES: 404 si la hora no tiene video; 409 si tiene más de uno (eso solo
+    #          pasa si además usó su cuenta, y desde ahí puede elegir cuál).
+    # -------------------------------------------------------------------------
+    path('seguimiento/<str:codigo>/eliminar/', views.video_seguimiento_eliminar, name='video-seguimiento-eliminar'),
+
     # -------------------------------------------------------------------------
     # MÉTODO: GET
     # URL: /api/pm/videos/listar/            (todos los vigentes)

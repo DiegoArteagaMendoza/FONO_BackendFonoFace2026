@@ -6,6 +6,7 @@ from rest_framework import status
 from FonoAppInformacion.models import FonoApp_Informacion, FonoApp_Informacion_Imagen
 from FonoAppInformacion.serializer import FonoApp_InformacionSerializer
 from FonoAppFunciones.authentication import CustomJWTAuthentication
+from FonoAppFunciones.archivos import borrar_de_cloudinary
 
 # =========================================================
 # 1. LISTAR Y FILTRAR
@@ -147,8 +148,10 @@ def informacion_imagen_eliminar(request, id_imagen):
     """
     try:
         imagen = FonoApp_Informacion_Imagen.objects.get(id=id_imagen)
-        # 1. Borramos el archivo físico de la carpeta /media/informacion/imagenes/
-        imagen.imagen.delete(save=False)
+        # 1. Borramos el archivo de Cloudinary. No sirve imagen.delete(save=False):
+        #    un CloudinaryField guarda un CloudinaryResource, que no tiene ese
+        #    metodo y lanzaria AttributeError.
+        borrar_de_cloudinary(imagen.imagen)
         # 2. Borramos el registro de la tabla FonoApp_Informacion_Imagen
         imagen.delete()
         return Response({'mensaje': 'Imagen eliminada correctamente'}, status=status.HTTP_200_OK)
