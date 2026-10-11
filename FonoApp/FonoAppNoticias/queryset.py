@@ -98,3 +98,19 @@ class FonoApp_Noticias_Queryset(models.QuerySet):
         FonoApp_Noticia_Imagen.objects.bulk_create(imagenes_objs)
         
         return True, "Imágenes agregadas correctamente."
+
+class FonoApp_Newsletter_Queryset(models.QuerySet):
+
+    def activas(self):
+        """
+        Retorna solo las suscripciones vigentes (no dadas de baja).
+        """
+        return self.filter(estado=True)
+
+    def dar_de_baja(self, email):
+        """
+        Borrado lógico de la suscripción de un correo.
+        Retorna True si había una suscripción activa que se dio de baja.
+        """
+        filas_actualizadas = self.filter(email=email, estado=True).update(estado=False)
+        return filas_actualizadas > 0

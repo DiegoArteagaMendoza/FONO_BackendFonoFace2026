@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-from FonoAppNoticias.queryset import FonoApp_Noticias_Queryset
+from FonoAppNoticias.queryset import FonoApp_Noticias_Queryset, FonoApp_Newsletter_Queryset
 from cloudinary.models import CloudinaryField # Importación necesaria
 
 class FonoApp_Noticias(models.Model):
@@ -44,6 +44,8 @@ class FonoApp_Newsletter(models.Model):
     email = models.EmailField(max_length=254, unique=True, verbose_name='Correo electrónico')
     fecha_suscripcion = models.DateTimeField(auto_now_add=True, verbose_name='Fecha de suscripción')
     estado = models.BooleanField(default=True, verbose_name='Activo') # Para borrado lógico / desuscripción
+
+    objects = FonoApp_Newsletter_Queryset.as_manager()
 
     class Meta:
         db_table = 'FonoApp_Newsletter'

@@ -293,6 +293,13 @@ else:
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Vocare UBB <no-responder@vocare-ubb.cl>')
 
+# Base pública del frontend, para armar el enlace a la noticia que va en el
+# aviso del newsletter (ver FonoAppNoticias/correos.py). El valor por defecto
+# solo sirve en desarrollo; en el hosting hay que definir FRONTEND_URL con el
+# dominio real (en develop, https://dev.vocare-ubb.cl), igual que en el Portal
+# Médico.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:4200').rstrip('/')
+
 """
     MANEJO DE IMAGENES
 """

@@ -93,4 +93,19 @@ urlpatterns = [
     # { "mensaje": "Este correo ya se encuentra suscrito" }  (Status 200)
     # -------------------------------------------------------------------------
     path('newsletter/suscribir/', views.newsletter_suscribir, name='newsletter-suscribir'),
+
+    # -------------------------------------------------------------------------
+    # MÉTODO: POST
+    # URL: /api/noticias/newsletter/baja/
+    # HEADERS: Ninguno (Acceso público)
+    # BODY (JSON): { "token": "<token del enlace de baja del correo>" }
+    # Lo usa la página de baja del portal (#/portal/noticias/newsletter/baja?token=...),
+    # a la que lleva el enlace "darse de baja" de cada correo del newsletter.
+    # El token es el correo firmado, no un id (ver correos.py).
+    # RESPUESTA ESPERADA (JSON):
+    # { "mensaje": "Te diste de baja del newsletter correctamente" }  (Status 200)
+    # Token ausente, inválido o alterado:
+    # { "error": "El enlace de baja no es válido" }  (Status 400)
+    # -------------------------------------------------------------------------
+    path('newsletter/baja/', views.newsletter_baja, name='newsletter-baja'),
 ]
