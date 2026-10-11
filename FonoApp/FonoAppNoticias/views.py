@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -7,6 +9,9 @@ from FonoAppNoticias.models import FonoApp_Noticias, FonoApp_Noticia_Imagen, Fon
 from FonoAppNoticias.serializer import FonoApp_NoticiasSerializer, FonoApp_NewsletterSerializer
 from FonoAppFunciones.authentication import CustomJWTAuthentication
 from FonoAppFunciones.archivos import borrar_de_cloudinary
+from FonoAppNoticias.correos import enviar_aviso_noticia, enviar_confirmacion_suscripcion, email_desde_token
+
+logger = logging.getLogger(__name__)
 
 @api_view(['GET'])
 @permission_classes([AllowAny]) # Lo dejo público para que cualquiera pueda leer las noticias, cámbialo a IsAuthenticated si es privado
@@ -34,7 +39,10 @@ def noticias_crear(request):
     )
     
     if serializer.is_valid():
-        serializer.save()
+        noticia = serializer.save()
+        # Aviso a los suscriptores del newsletter. Si el SMTP falla la noticia
+        # ya quedó publicada: el error solo queda en el log (ver correos.py).
+        enviar_aviso_noticia(noticia)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
         
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -142,12 +150,46 @@ def newsletter_suscribir(request):
         if not suscripcion_existente.estado:
             suscripcion_existente.estado = True
             suscripcion_existente.save(update_fields=['estado'])
+            enviar_confirmacion_suscripcion(email)
             return Response({'mensaje': 'Suscripción reactivada correctamente'}, status=status.HTTP_200_OK)
         return Response({'mensaje': 'Este correo ya se encuentra suscrito'}, status=status.HTTP_200_OK)
 
     serializer = FonoApp_NewsletterSerializer(data={'email': email})
     if serializer.is_valid():
         serializer.save()
+        enviar_confirmacion_suscripcion(email)
         return Response({'mensaje': 'Suscripción registrada correctamente'}, status=status.HTTP_201_CREATED)
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny]) # Público: el suscriptor llega desde el enlace del correo, sin sesión
+def newsletter_baja(request):
+    """
+    Da de baja una suscripción al newsletter a partir del token del enlace de
+    baja que va en cada correo (ver correos.py). El token es el correo firmado,
+    así no se expone el id de la suscripción.
+    """
+    token = str(request.data.get('token', '')).strip()
+
+    if not token:
+        return Response({'error': 'El enlace de baja está incompleto'}, status=status.HTTP_400_BAD_REQUEST)
+
+    email = email_desde_token(token)
+    if not email:
+        return Response({'error': 'El enlace de baja no es válido'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        FonoApp_Newsletter.objects.dar_de_baja(email)
+    except Exception:
+        logger.exception('No se pudo dar de baja una suscripción al newsletter')
+        return Response(
+            {'error': 'No se pudo completar la baja, inténtalo nuevamente'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    # Si ya estaba de baja también se informa éxito: el resultado para la
+    # persona es el mismo, y no se revela si el correo estaba suscrito.
+    return Response({'mensaje': 'Te diste de baja del newsletter correctamente'}, status=status.HTTP_200_OK)
