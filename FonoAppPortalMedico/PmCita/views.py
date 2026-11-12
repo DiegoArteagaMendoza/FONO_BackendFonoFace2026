@@ -19,6 +19,7 @@ from PmCita.serializer import (
     PmDisponibilidadSerializer,
     PmDisponibilidadPublicaSerializer,
     PmDisponibilidadPublicarSerializer,
+    PmEnlaceReunionSerializer,
     PmCitaSeguimientoSerializer,
     PmCitaSeguimientoCancelarSerializer,
     PmCitaSeguimientoPosponerSerializer,
@@ -238,6 +239,27 @@ def cita_profesional_marcar_realizada(request, id_cita):
     return Response(PmCitaSerializer(cita).data)
 
 
+@api_view(['PATCH'])
+@permission_classes([EsProfesional])
+def cita_profesional_enlace(request, id_cita):
+    """
+    El profesional agrega, cambia o quita el link de la reunión online (Meet o
+    Zoom) de una cita suya. Si la cita sigue ligada a su hora publicada, la
+    hora queda con el mismo link.
+    """
+    entrada = PmEnlaceReunionSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+    datos = entrada.validated_data
+
+    cita, error = PmCita.objects.actualizar_enlace_por_profesional(
+        id_cita, request.user.pk, datos['plataforma_reunion'], datos['enlace_reunion']
+    )
+    if error:
+        return _respuesta_error(error)
+
+    return Response(PmCitaSerializer(cita).data)
+
+
 # ==========================================================================
 # DETALLE Y ADMINISTRACIÓN
 # ==========================================================================
@@ -317,6 +339,8 @@ def disponibilidad_publicar(request):
         profesional=request.user,
         fechas_hora=datos['fechas_hora'],
         duracion_minutos=datos.get('duracion_minutos'),
+        plataforma_reunion=datos['plataforma_reunion'],
+        enlace_reunion=datos['enlace_reunion'],
     )
 
     codigo = status.HTTP_201_CREATED if creados else status.HTTP_400_BAD_REQUEST
@@ -353,6 +377,27 @@ def disponibilidad_retirar(request, id_disponibilidad):
     se responde 400 pidiendo que cancele la cita, que sí deja constancia.
     """
     bloque, error = PmDisponibilidad.objects.retirar(id_disponibilidad, request.user.pk)
+    if error:
+        return _respuesta_error(error, mensaje_404='no encontrado')
+
+    return Response(PmDisponibilidadSerializer(bloque).data)
+
+
+@api_view(['PATCH'])
+@permission_classes([EsProfesional])
+def disponibilidad_enlace(request, id_disponibilidad):
+    """
+    El profesional agrega, cambia o quita el link de la reunión online (Meet o
+    Zoom) de una hora publicada. Si la hora ya tiene paciente, la cita recibe
+    el mismo link.
+    """
+    entrada = PmEnlaceReunionSerializer(data=request.data)
+    entrada.is_valid(raise_exception=True)
+    datos = entrada.validated_data
+
+    bloque, error = PmDisponibilidad.objects.actualizar_enlace(
+        id_disponibilidad, request.user.pk, datos['plataforma_reunion'], datos['enlace_reunion']
+    )
     if error:
         return _respuesta_error(error, mensaje_404='no encontrado')
 

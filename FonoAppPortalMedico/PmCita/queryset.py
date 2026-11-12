@@ -301,6 +301,10 @@ class PmCita_Queryset(models.QuerySet):
                 fecha_hora=bloqueado.fecha_hora,
                 duracion_minutos=bloqueado.duracion_minutos,
                 motivo_consulta=motivo_consulta,
+                # El link de la reunión pasa a la cita: si después se
+                # reprograma, la cita se desliga del bloque y debe conservarlo.
+                plataforma_reunion=bloqueado.plataforma_reunion,
+                enlace_reunion=bloqueado.enlace_reunion,
             )
 
             bloqueado.cita = cita
@@ -321,6 +325,35 @@ class PmCita_Queryset(models.QuerySet):
         cita.estado = self.model.Estado.REALIZADA
         cita.fecha_marcada_realizada = timezone.now()
         cita.save(update_fields=['estado', 'fecha_marcada_realizada'])
+        return cita, None
+
+    def actualizar_enlace_por_profesional(self, id_cita, id_profesional, plataforma, enlace):
+        """
+        El profesional agrega, cambia o quita el link de la reunión online de
+        una cita suya. 'plataforma' y 'enlace' llegan ya validados
+        (ver models.validar_enlace_reunion); ambos None quita el link.
+
+        Solo en citas que siguen reservadas: en una cancelada o realizada ya no
+        hay reunión a la que entrar. Si la cita sigue ligada a su bloque de
+        disponibilidad, el bloque se actualiza también para que ambos coincidan.
+        """
+        from PmCita.models import PmDisponibilidad
+
+        try:
+            cita = self.get(pk=id_cita, profesional_id=id_profesional)
+        except self.model.DoesNotExist:
+            return None, 'Cita no encontrada.'
+
+        if not cita.esta_activa:
+            return None, 'Solo se puede cambiar el link de citas que siguen reservadas.'
+
+        cita.plataforma_reunion = plataforma
+        cita.enlace_reunion = enlace
+        cita.save(update_fields=['plataforma_reunion', 'enlace_reunion'])
+
+        PmDisponibilidad.objects.filter(cita_id=cita.pk).update(
+            plataforma_reunion=plataforma, enlace_reunion=enlace
+        )
         return cita, None
 
 
@@ -389,7 +422,8 @@ class PmDisponibilidad_Queryset(models.QuerySet):
                 return True
         return False
 
-    def publicar(self, profesional, fecha_hora, duracion_minutos=None):
+    def publicar(self, profesional, fecha_hora, duracion_minutos=None,
+                 plataforma_reunion=None, enlace_reunion=None):
         """
         Publica un bloque. Exige que sea futuro, que la duración esté dentro
         del rango permitido y que no se cruce con otro bloque del profesional.
@@ -418,10 +452,13 @@ class PmDisponibilidad_Queryset(models.QuerySet):
             profesional=profesional,
             fecha_hora=fecha_hora,
             duracion_minutos=duracion_minutos,
+            plataforma_reunion=plataforma_reunion,
+            enlace_reunion=enlace_reunion,
         )
 
     @transaction.atomic
-    def publicar_varios(self, profesional, fechas_hora, duracion_minutos=None):
+    def publicar_varios(self, profesional, fechas_hora, duracion_minutos=None,
+                        plataforma_reunion=None, enlace_reunion=None):
         """
         Publica varios bloques de una vez (por ejemplo, toda una mañana).
 
@@ -435,7 +472,11 @@ class PmDisponibilidad_Queryset(models.QuerySet):
 
         for fecha_hora in fechas_hora:
             try:
-                creados.append(self.publicar(profesional, fecha_hora, duracion_minutos))
+                creados.append(self.publicar(
+                    profesional, fecha_hora, duracion_minutos,
+                    plataforma_reunion=plataforma_reunion,
+                    enlace_reunion=enlace_reunion,
+                ))
             except ValidationError as error:
                 rechazados.append({
                     'fecha_hora': fecha_hora,
@@ -471,6 +512,35 @@ class PmDisponibilidad_Queryset(models.QuerySet):
 
         bloque.estado = False
         bloque.save(update_fields=['estado'])
+        return bloque, None
+
+    def actualizar_enlace(self, id_disponibilidad, id_profesional, plataforma, enlace):
+        """
+        El profesional agrega, cambia o quita el link de la reunión online de
+        una hora publicada. 'plataforma' y 'enlace' llegan ya validados (ver
+        models.validar_enlace_reunion); ambos None quita el link.
+
+        Si la hora ya fue reservada, la cita recibe el mismo link: es lo que ve
+        el paciente para entrar a la atención.
+        """
+        from PmCita.models import PmCita
+
+        try:
+            bloque = self.get(pk=id_disponibilidad, profesional_id=id_profesional, estado=True)
+        except self.model.DoesNotExist:
+            return None, 'Bloque no encontrado.'
+
+        if bloque.ya_paso:
+            return None, 'Esa hora ya pasó; no tiene sentido cambiarle el link.'
+
+        bloque.plataforma_reunion = plataforma
+        bloque.enlace_reunion = enlace
+        bloque.save(update_fields=['plataforma_reunion', 'enlace_reunion'])
+
+        if bloque.cita_id:
+            PmCita.objects.filter(pk=bloque.cita_id, estado=PmCita.Estado.RESERVADA).update(
+                plataforma_reunion=plataforma, enlace_reunion=enlace
+            )
         return bloque, None
 
     def retirar_todos_de_profesional(self, id_profesional):

@@ -48,7 +48,7 @@ def enviar_confirmacion_reserva(cita):
 
 Tu hora con {profesional} quedó reservada para el {fecha}.
 
-Tu código de seguimiento es:
+{_texto_reunion(cita)}Tu código de seguimiento es:
 
     {cita.codigo_seguimiento}
 
@@ -80,6 +80,22 @@ Portal Médico Vocare UBB — Universidad del Bío-Bío
         # mal configurado; el usuario no ve nada de esto.
         logger.exception('No se pudo enviar la confirmación de la cita %s', cita.pk)
         return False
+
+
+def _texto_reunion(cita):
+    """
+    Párrafo con el link de la reunión online, si el profesional ya lo agregó.
+    Si todavía no, se avisa que llegará en la pantalla de seguimiento.
+    """
+    if cita.enlace_reunion:
+        return (
+            f'La atención es online por {cita.get_plataforma_reunion_display()}. '
+            f'Entra a la hora agendada desde este link:\n\n{cita.enlace_reunion}\n\n'
+        )
+    return (
+        'La atención es online. El link de la reunión aparecerá en la pantalla '
+        'de seguimiento en cuanto tu profesional lo agregue.\n\n'
+    )
 
 
 def _horas_anticipacion():

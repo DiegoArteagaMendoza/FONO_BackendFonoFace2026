@@ -1,5 +1,7 @@
 from datetime import timedelta
+from urllib.parse import urlparse
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -35,6 +37,61 @@ REPROGRAMACIONES_MAXIMAS = 3
 # teclearlos. Con 8 caracteres sobre 31 símbolos hay ~8.5·10^11 combinaciones.
 LONGITUD_CODIGO_SEGUIMIENTO = 8
 ALFABETO_CODIGO_SEGUIMIENTO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+
+class PlataformaReunion(models.TextChoices):
+    """Plataformas aceptadas para la reunión online de una cita."""
+    MEET = 'MEET', 'Google Meet'
+    ZOOM = 'ZOOM', 'Zoom'
+
+
+# Largo máximo del link de la reunión. Los de Zoom con contraseña incluida
+# (?pwd=...) superan con holgura los 200 caracteres por defecto de URLField.
+LARGO_MAXIMO_ENLACE_REUNION = 500
+
+
+def _host_valido_para(plataforma, host):
+    if plataforma == PlataformaReunion.MEET:
+        return host == 'meet.google.com'
+    if plataforma == PlataformaReunion.ZOOM:
+        # Zoom usa subdominios por cuenta o región: us02web.zoom.us, ubb.zoom.us...
+        return host == 'zoom.us' or host.endswith('.zoom.us')
+    return False
+
+
+def validar_enlace_reunion(plataforma, enlace):
+    """
+    Normaliza y valida el link de la reunión online que genera el profesional.
+
+    Devuelve (plataforma, enlace). Ambos vacíos es válido: el profesional puede
+    publicar la hora y agregar el link después (el frontend se lo recuerda).
+    Lo que no se acepta es uno sin el otro, ni un link que no corresponda a la
+    plataforma indicada: el paciente vería "Unirse por Meet" y llegaría a otra
+    parte. Se exige https porque el link se muestra como botón al paciente.
+    """
+    plataforma = (plataforma or '').strip().upper() or None
+    enlace = (enlace or '').strip() or None
+
+    if not plataforma and not enlace:
+        return None, None
+    if not plataforma:
+        raise ValidationError('Indique si el link es de Google Meet o de Zoom.')
+    if plataforma not in PlataformaReunion.values:
+        raise ValidationError('La plataforma debe ser Google Meet o Zoom.')
+    if not enlace:
+        raise ValidationError('Pegue el link de la reunión.')
+    if len(enlace) > LARGO_MAXIMO_ENLACE_REUNION:
+        raise ValidationError(f'El link no puede superar los {LARGO_MAXIMO_ENLACE_REUNION} caracteres.')
+
+    partes = urlparse(enlace)
+    host = (partes.hostname or '').lower()
+    if partes.scheme != 'https' or not host:
+        raise ValidationError('El link debe ser una dirección completa que empiece con https://')
+    if not _host_valido_para(plataforma, host):
+        nombre = PlataformaReunion(plataforma).label
+        raise ValidationError(f'El link no corresponde a {nombre}. Revise que lo copió completo desde {nombre}.')
+
+    return plataforma, enlace
 
 
 def generar_codigo_seguimiento():
@@ -123,6 +180,19 @@ class PmCita(models.Model):
     motivo_reprogramacion = models.TextField(blank=True, null=True, verbose_name='Motivo de la última reprogramación')
     reprogramada_por = models.CharField(max_length=12, choices=Origen.choices, null=True, blank=True)
     fecha_ultima_reprogramacion = models.DateTimeField(null=True, blank=True)
+
+    # --- Reunión online ---
+    # Link que genera el propio profesional en Meet o Zoom. Se copia desde el
+    # bloque de disponibilidad al reservar y vive también en la cita: al
+    # reprogramar, la cita se desliga del bloque y el link debe seguir con ella.
+    plataforma_reunion = models.CharField(
+        max_length=4, choices=PlataformaReunion.choices, null=True, blank=True,
+        verbose_name='Plataforma de la reunión online',
+    )
+    enlace_reunion = models.URLField(
+        max_length=LARGO_MAXIMO_ENLACE_REUNION, null=True, blank=True,
+        verbose_name='Link de la reunión online',
+    )
 
     # --- Atención ---
     fecha_marcada_realizada = models.DateTimeField(null=True, blank=True)
@@ -216,6 +286,18 @@ class PmDisponibilidad(models.Model):
         blank=True,
         related_name='disponibilidad',
         verbose_name='Cita que ocupa el bloque',
+    )
+
+    # Reunión online de esta hora. Opcional al publicar, pero el frontend avisa
+    # al profesional mientras falte: sin link, el paciente no tiene cómo entrar.
+    # Al reservarse, se copia a la cita (ver PmCita_Queryset.reservar_bloque).
+    plataforma_reunion = models.CharField(
+        max_length=4, choices=PlataformaReunion.choices, null=True, blank=True,
+        verbose_name='Plataforma de la reunión online',
+    )
+    enlace_reunion = models.URLField(
+        max_length=LARGO_MAXIMO_ENLACE_REUNION, null=True, blank=True,
+        verbose_name='Link de la reunión online',
     )
 
     # Borrado lógico, igual que el resto del proyecto: el profesional puede
