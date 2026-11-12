@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from PmMedico.models import PM_Profesional
@@ -6,7 +7,36 @@ from PmCita.models import (
     PmDisponibilidad,
     DURACION_MINUTOS_MINIMA,
     DURACION_MINUTOS_MAXIMA,
+    LARGO_MAXIMO_ENLACE_REUNION,
+    PlataformaReunion,
+    validar_enlace_reunion,
 )
+
+
+class _EnlaceReunionMixin(serializers.Serializer):
+    """
+    Campos y validación del link de la reunión online (Meet o Zoom) que genera
+    el propio profesional. Son opcionales: sin ellos la hora se publica igual y
+    el frontend le recuerda que lo agregue.
+    """
+    plataforma_reunion = serializers.ChoiceField(
+        choices=PlataformaReunion.choices, required=False, allow_null=True, allow_blank=True
+    )
+    enlace_reunion = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, max_length=LARGO_MAXIMO_ENLACE_REUNION
+    )
+
+    def validate(self, datos):
+        datos = super().validate(datos)
+        try:
+            plataforma, enlace = validar_enlace_reunion(
+                datos.get('plataforma_reunion'), datos.get('enlace_reunion')
+            )
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({'enlace_reunion': error.messages})
+        datos['plataforma_reunion'] = plataforma
+        datos['enlace_reunion'] = enlace
+        return datos
 
 
 class PmCitaSerializer(serializers.ModelSerializer):
@@ -30,6 +60,7 @@ class PmCitaSerializer(serializers.ModelSerializer):
             'fecha_hora_original', 'veces_reprogramada', 'motivo_reprogramacion',
             'reprogramada_por', 'fecha_ultima_reprogramacion',
             'fecha_marcada_realizada',
+            'plataforma_reunion', 'enlace_reunion',
             'esta_activa', 'ya_paso',
         ]
         read_only_fields = fields
@@ -98,6 +129,7 @@ class PmDisponibilidadSerializer(serializers.ModelSerializer):
         fields = [
             'id_disponibilidad', 'profesional', 'fecha_hora', 'fecha_hora_fin',
             'duracion_minutos', 'cita', 'estado', 'fecha_creacion',
+            'plataforma_reunion', 'enlace_reunion',
             'esta_reservado', 'esta_disponible', 'ya_paso',
         ]
         read_only_fields = fields
@@ -117,11 +149,13 @@ class PmDisponibilidadPublicaSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class PmDisponibilidadPublicarSerializer(serializers.Serializer):
+class PmDisponibilidadPublicarSerializer(_EnlaceReunionMixin):
     """
     Body de POST /api/pm/citas/disponibilidad/publicar/.
     Acepta varias horas de una vez para poder publicar una jornada completa
-    sin repetir la petición por cada bloque.
+    sin repetir la petición por cada bloque. El link de reunión, si se envía,
+    se asigna a todas las horas publicadas (sirve para una sala personal de
+    Meet o Zoom); cada hora puede cambiarlo después por separado.
     """
     fechas_hora = serializers.ListField(
         child=serializers.DateTimeField(),
@@ -131,6 +165,13 @@ class PmDisponibilidadPublicarSerializer(serializers.Serializer):
     duracion_minutos = serializers.IntegerField(
         required=False, min_value=DURACION_MINUTOS_MINIMA, max_value=DURACION_MINUTOS_MAXIMA
     )
+
+
+class PmEnlaceReunionSerializer(_EnlaceReunionMixin):
+    """
+    Body de PATCH .../enlace/ (hora publicada o cita). Enviar ambos campos
+    vacíos o nulos quita el link.
+    """
 
 
 class PmCitaPacienteInvitadoSerializer(serializers.Serializer):
@@ -210,6 +251,7 @@ class PmCitaSeguimientoSerializer(serializers.ModelSerializer):
             'motivo_cancelacion', 'fecha_hora_original', 'veces_reprogramada',
             'esta_activa', 'ya_paso', 'permite_cambios', 'reprogramaciones_restantes',
             'permite_carga_video', 'paciente_tiene_cuenta',
+            'plataforma_reunion', 'enlace_reunion',
         ]
         read_only_fields = fields
 

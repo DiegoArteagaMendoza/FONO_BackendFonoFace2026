@@ -69,6 +69,13 @@ urlpatterns = [
         name='cita-profesional-marcar-realizada',
     ),
 
+    # MÉTODO: PATCH | URL: /api/pm/citas/<id_cita>/profesional/enlace/
+    # Requiere: Bearer <token profesional (dueño de la cita)>
+    # BODY: {"plataforma_reunion": "MEET" | "ZOOM", "enlace_reunion": "https://..."}
+    #       Ambos vacíos o null quitan el link. Solo citas reservadas.
+    # RESPUESTA: la cita actualizada (y su hora publicada, si sigue ligada).
+    path('<int:id_cita>/profesional/enlace/', views.cita_profesional_enlace, name='cita-profesional-enlace'),
+
     # =====================================================================
     # DETALLE Y ADMINISTRACIÓN
     # =====================================================================
@@ -91,7 +98,9 @@ urlpatterns = [
     # MÉTODO: POST | URL: /api/pm/citas/disponibilidad/publicar/
     # Requiere: Bearer <token profesional>
     # BODY: {"fechas_hora": ["2026-09-01T10:00:00Z", ...] (máx. 100),
-    #        "duracion_minutos" (opcional, por defecto 45)}
+    #        "duracion_minutos" (opcional, por defecto 45),
+    #        "plataforma_reunion": "MEET" | "ZOOM" (opcional),
+    #        "enlace_reunion": "https://..." (opcional; se asigna a todas las horas)}
     # RESPUESTA: {"creados": [...], "rechazados": [{"fecha_hora","motivo"}]}.
     # Cada bloque se evalúa por separado: uno rechazado no anula los demás.
     path('disponibilidad/publicar/', views.disponibilidad_publicar, name='disponibilidad-publicar'),
@@ -110,6 +119,17 @@ urlpatterns = [
         'disponibilidad/<int:id_disponibilidad>/retirar/',
         views.disponibilidad_retirar,
         name='disponibilidad-retirar',
+    ),
+
+    # MÉTODO: PATCH | URL: /api/pm/citas/disponibilidad/<id>/enlace/
+    # Requiere: Bearer <token profesional dueño del bloque>
+    # BODY: {"plataforma_reunion": "MEET" | "ZOOM", "enlace_reunion": "https://..."}
+    #       Ambos vacíos o null quitan el link. Si la hora ya tiene paciente,
+    #       la cita recibe el mismo link.
+    path(
+        'disponibilidad/<int:id_disponibilidad>/enlace/',
+        views.disponibilidad_enlace,
+        name='disponibilidad-enlace',
     ),
 
     # MÉTODO: GET | URL: /api/pm/citas/disponibilidad/profesional/<id>/
